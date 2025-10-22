@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Download } from 'lucide-react';
 import { api } from '../services/api';
-import { Button } from '@/components/ui/button';
+import { Button } from './ui/button';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
+} from './ui/tooltip';
 
 interface DownloadFileButtonProps {
   filePath: string;

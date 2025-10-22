@@ -1,11 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Download, FileText, FolderOpen, Package } from 'lucide-react';
 import { api } from '../services/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
 import {
   extractFilePathsFromConversation,
   getUniqueFilePaths,
@@ -58,33 +55,31 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
 
   if (detectedFiles.length === 0) {
     return (
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FolderOpen className="w-5 h-5" />
-            Files
-          </CardTitle>
-          <CardDescription>
-            No files detected in this conversation
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="w-full border rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <FolderOpen className="w-5 h-5" />
+          <h3 className="font-semibold">Files</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          No files detected in this conversation
+        </p>
+      </div>
     );
   }
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+    <div className="w-full border rounded-lg">
+      <div className="p-4 border-b">
+        <div className="flex items-center gap-2 mb-1">
           <FolderOpen className="w-5 h-5" />
-          Files
+          <h3 className="font-semibold">Files</h3>
           <Badge variant="secondary">{detectedFiles.length}</Badge>
-        </CardTitle>
-        <CardDescription>
+        </div>
+        <p className="text-sm text-muted-foreground">
           Files referenced in this conversation
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        </p>
+      </div>
+      <div className="p-4 space-y-4">
         <Button
           onClick={handleDownloadAll}
           disabled={isDownloadingAll}
@@ -101,21 +96,19 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
           </div>
         )}
 
-        <Separator />
+        <div className="h-px bg-border" />
 
-        <ScrollArea className="h-[400px]">
-          <div className="space-y-2">
-            {detectedFiles.map((file: DetectedFile) => (
-              <FileItem
-                key={file.path}
-                file={file}
-                onDownload={() => handleDownloadSingle(file.path)}
-              />
-            ))}
-          </div>
-        </ScrollArea>
-      </CardContent>
-    </Card>
+        <div className="max-h-[400px] overflow-y-auto space-y-2">
+          {detectedFiles.map((file: DetectedFile) => (
+            <FileItem
+              key={file.path}
+              file={file}
+              onDownload={() => handleDownloadSingle(file.path)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
