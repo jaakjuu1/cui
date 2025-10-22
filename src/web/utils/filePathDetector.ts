@@ -110,38 +110,88 @@ export function extractFilePathsFromConversation(
  * Extract absolute file paths from text using regex
  */
 function extractPathsFromText(text: string, conversationCwd?: string): string[] {
-  const paths: string[] = [];
+  const paths: Set<string> = new Set();
 
-  // Regex for Unix/Linux absolute paths: /path/to/file.ext
-  const unixPathRegex = /\/(?:[a-zA-Z0-9_\-\.]+\/)*[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+/g;
+  // Track quoted ranges to avoid double-matching
+  const quotedRanges: Array<[number, number]> = [];
 
-  // Regex for Windows absolute paths: C:\path\to\file.ext or C:/path/to/file.ext
-  const windowsPathRegex = /[A-Z]:\\(?:[a-zA-Z0-9_\-\.]+\\)*[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+/g;
-  const windowsPathRegex2 = /[A-Z]:\/(?:[a-zA-Z0-9_\-\.]+\/)*[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+/g;
-
-  // Extract Unix paths
-  const unixMatches = text.match(unixPathRegex);
-  if (unixMatches) {
-    paths.push(...unixMatches);
+  // Extract quoted paths first (supports spaces)
+  // Matches: "/path/to/My File.txt" or '/path/to/My File.txt'
+  const quotedPathRegex = /["']([/\\](?:[^"']+[/\\])*(?:[^"'/\\]+\.[\w]+|\.[\w]+|[A-Z_][A-Z_0-9]*))["']/g;
+  let match;
+  while ((match = quotedPathRegex.exec(text)) !== null) {
+    const path = match[1].trim();
+    if (path && !isUrlOrFalsePositive(path)) {
+      paths.add(path);
+      // Track the range of the entire quoted string
+      quotedRanges.push([match.index, match.index + match[0].length]);
+    }
   }
 
-  // Extract Windows paths
-  const windowsMatches = text.match(windowsPathRegex);
-  if (windowsMatches) {
-    paths.push(...windowsMatches);
+  // Helper to check if index is within a quoted range
+  const isInQuotedRange = (index: number): boolean => {
+    return quotedRanges.some(([start, end]) => index >= start && index < end);
+  };
+
+  // Improved regex for Unix/Linux absolute paths (unquoted, no spaces)
+  // Matches: /path/to/file.ext, /path/to/.gitignore, /path/to/README
+  // Supports: brackets, hyphens, underscores, dots (but NOT spaces)
+  const unixPathRegex = /\/(?:[^\s/]+\/)*(?:[^\s/]+\.[\w]+|\.[\w]+|[A-Z_][A-Z_0-9]*)(?=\s|$|[,;.!?)])/g;
+
+  // Improved regex for Windows absolute paths: C:\path\to\file or C:/path/to/file
+  const windowsPathRegex = /[A-Z]:[\\/](?:[^\s\\/]+[\\/])*(?:[^\s\\/]+\.[\w]+|\.[\w]+|[A-Z_][A-Z_0-9]*)(?=\s|$|[,;.!?)])/gi;
+
+  // Extract Unix paths (skip if in quoted range)
+  while ((match = unixPathRegex.exec(text)) !== null) {
+    if (!isInQuotedRange(match.index)) {
+      const path = match[0].trim();
+      if (path && !isUrlOrFalsePositive(path)) {
+        paths.add(path);
+      }
+    }
   }
 
-  const windowsMatches2 = text.match(windowsPathRegex2);
-  if (windowsMatches2) {
-    paths.push(...windowsMatches2);
+  // Extract Windows paths (skip if in quoted range)
+  while ((match = windowsPathRegex.exec(text)) !== null) {
+    if (!isInQuotedRange(match.index)) {
+      const path = match[0].trim();
+      if (path && !isUrlOrFalsePositive(path)) {
+        paths.add(path);
+      }
+    }
   }
 
-  // Filter paths to only include those within conversation cwd if provided
+  // Convert to array and filter by cwd if provided
+  const pathArray = Array.from(paths);
   if (conversationCwd) {
-    return paths.filter(p => p.startsWith(conversationCwd));
+    return pathArray.filter(p => p.startsWith(conversationCwd));
   }
 
-  return paths;
+  return pathArray;
+}
+
+/**
+ * Filter out URLs and common false positives
+ */
+function isUrlOrFalsePositive(path: string): boolean {
+  // Filter out URLs (http://, https://, file://)
+  if (/^https?:\/\//.test(path) || /^file:\/\//.test(path)) {
+    return true;
+  }
+
+  // Filter out version-like patterns (e.g., /1.0.0/, /v2.3.4/)
+  if (/^\/v?\d+\.\d+(\.\d+)?/.test(path)) {
+    return true;
+  }
+
+  // Filter out single-level paths that are likely false positives
+  // (e.g., /usr, /bin) - but allow if they have extensions or start with dot
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  if (parts.length === 1 && !path.includes('.')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
