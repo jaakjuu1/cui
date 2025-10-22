@@ -231,6 +231,15 @@ export interface FileSystemReadResponse {
   encoding: string;
 }
 
+export interface FileSystemDownloadQuery {
+  path: string;
+  sessionId: string; // Required to validate path is within conversation's cwd
+}
+
+export interface BulkDownloadFilesRequest {
+  files: string[]; // Array of file paths to include in ZIP
+}
+
 // Session Info Database types for lowdb
 export interface SessionInfo {
   custom_name: string;          // Custom name for the session, default: ""
