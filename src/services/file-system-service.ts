@@ -17,7 +17,7 @@ export class FileSystemService {
   private logger: Logger;
   private maxFileSize: number = 10 * 1024 * 1024; // 10MB default
   private allowedBasePaths: string[] = []; // Empty means all paths allowed
-  
+
   constructor(maxFileSize?: number, allowedBasePaths?: string[]) {
     this.logger = createLogger('FileSystemService');
     if (maxFileSize !== undefined) {
@@ -26,6 +26,14 @@ export class FileSystemService {
     if (allowedBasePaths) {
       this.allowedBasePaths = allowedBasePaths.map(p => path.normalize(p));
     }
+  }
+
+  /**
+   * Update the maximum file size limit
+   */
+  setMaxFileSize(maxFileSize: number): void {
+    this.maxFileSize = maxFileSize;
+    this.logger.debug('Max file size updated', { maxFileSize });
   }
 
   /**
@@ -101,39 +109,39 @@ export class FileSystemService {
    */
   async readFile(requestedPath: string): Promise<{ path: string; content: string; size: number; lastModified: string; encoding: string }> {
     this.logger.debug('Read file requested', { requestedPath });
-    
+
     try {
       // Validate and normalize path
       const safePath = await this.validatePath(requestedPath);
-      
+
       // Check if path exists and is a file
       const stats = await fs.stat(safePath);
       if (!stats.isFile()) {
         throw new CUIError('NOT_A_FILE', `Path is not a file: ${requestedPath}`, 400);
       }
-      
+
       // Check file size
       if (stats.size > this.maxFileSize) {
         throw new CUIError(
-          'FILE_TOO_LARGE', 
-          `File size (${stats.size} bytes) exceeds maximum allowed size (${this.maxFileSize} bytes)`, 
+          'FILE_TOO_LARGE',
+          `File size (${stats.size} bytes) exceeds maximum allowed size (${this.maxFileSize} bytes)`,
           400
         );
       }
-      
+
       // Read file content
       const content = await fs.readFile(safePath, 'utf-8');
-      
+
       // Check if content is valid UTF-8 text
       if (!this.isValidUtf8(content)) {
         throw new CUIError('BINARY_FILE', 'File appears to be binary or not valid UTF-8', 400);
       }
-      
-      this.logger.debug('File read successfully', { 
-        path: safePath, 
-        size: stats.size 
+
+      this.logger.debug('File read successfully', {
+        path: safePath,
+        size: stats.size
       });
-      
+
       return {
         path: safePath,
         content,
@@ -145,17 +153,155 @@ export class FileSystemService {
       if (error instanceof CUIError) {
         throw error;
       }
-      
+
       const errorCode = (error as NodeJS.ErrnoException).code;
       if (errorCode === 'ENOENT') {
         throw new CUIError('FILE_NOT_FOUND', `File not found: ${requestedPath}`, 404);
       } else if (errorCode === 'EACCES') {
         throw new CUIError('ACCESS_DENIED', `Access denied to file: ${requestedPath}`, 403);
       }
-      
+
       this.logger.error('Error reading file', error, { requestedPath });
       throw new CUIError('READ_FILE_FAILED', `Failed to read file: ${error}`, 500);
     }
+  }
+
+  /**
+   * Download file with security checks (supports both text and binary files)
+   * Returns file buffer, mime type, and metadata for download
+   */
+  async downloadFile(requestedPath: string): Promise<{
+    buffer: Buffer;
+    mimeType: string;
+    filename: string;
+    size: number;
+    lastModified: string;
+  }> {
+    this.logger.debug('Download file requested', { requestedPath });
+
+    try {
+      // Validate and normalize path
+      const safePath = await this.validatePath(requestedPath);
+
+      // Check if path exists and is a file
+      const stats = await fs.stat(safePath);
+      if (!stats.isFile()) {
+        throw new CUIError('NOT_A_FILE', `Path is not a file: ${requestedPath}`, 400);
+      }
+
+      // Check file size
+      if (stats.size > this.maxFileSize) {
+        throw new CUIError(
+          'FILE_TOO_LARGE',
+          `File size (${stats.size} bytes) exceeds maximum allowed size (${this.maxFileSize} bytes)`,
+          400
+        );
+      }
+
+      // Read file as buffer (supports both text and binary)
+      const buffer = await fs.readFile(safePath);
+
+      // Determine MIME type based on file extension
+      const mimeType = this.getMimeType(safePath);
+
+      // Get filename from path
+      const filename = path.basename(safePath);
+
+      this.logger.debug('File download prepared', {
+        path: safePath,
+        size: stats.size,
+        mimeType,
+        filename
+      });
+
+      return {
+        buffer,
+        mimeType,
+        filename,
+        size: stats.size,
+        lastModified: stats.mtime.toISOString()
+      };
+    } catch (error) {
+      if (error instanceof CUIError) {
+        throw error;
+      }
+
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode === 'ENOENT') {
+        throw new CUIError('FILE_NOT_FOUND', `File not found: ${requestedPath}`, 404);
+      } else if (errorCode === 'EACCES') {
+        throw new CUIError('ACCESS_DENIED', `Access denied to file: ${requestedPath}`, 403);
+      }
+
+      this.logger.error('Error downloading file', error, { requestedPath });
+      throw new CUIError('DOWNLOAD_FILE_FAILED', `Failed to download file: ${error}`, 500);
+    }
+  }
+
+  /**
+   * Get MIME type based on file extension
+   */
+  private getMimeType(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      // Text
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+      '.html': 'text/html',
+      '.css': 'text/css',
+      '.js': 'text/javascript',
+      '.ts': 'text/typescript',
+      '.json': 'application/json',
+      '.xml': 'application/xml',
+      '.yaml': 'text/yaml',
+      '.yml': 'text/yaml',
+
+      // Images
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.webp': 'image/webp',
+      '.ico': 'image/x-icon',
+
+      // Documents
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+
+      // Archives
+      '.zip': 'application/zip',
+      '.tar': 'application/x-tar',
+      '.gz': 'application/gzip',
+      '.rar': 'application/x-rar-compressed',
+      '.7z': 'application/x-7z-compressed',
+
+      // Audio/Video
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.mp4': 'video/mp4',
+      '.avi': 'video/x-msvideo',
+      '.mov': 'video/quicktime',
+
+      // Programming
+      '.py': 'text/x-python',
+      '.java': 'text/x-java',
+      '.c': 'text/x-c',
+      '.cpp': 'text/x-c++',
+      '.rs': 'text/x-rust',
+      '.go': 'text/x-go',
+      '.rb': 'text/x-ruby',
+      '.php': 'text/x-php',
+      '.sh': 'application/x-sh',
+      '.sql': 'application/sql'
+    };
+
+    return mimeTypes[ext] || 'application/octet-stream';
   }
 
   /**

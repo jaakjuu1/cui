@@ -1,17 +1,21 @@
 import { Router, Request } from 'express';
-import { 
+import * as path from 'path';
+import {
   CUIError,
   FileSystemListQuery,
   FileSystemListResponse,
   FileSystemReadQuery,
-  FileSystemReadResponse 
+  FileSystemReadResponse,
+  FileSystemDownloadQuery
 } from '@/types/index.js';
 import { RequestWithRequestId } from '@/types/express.js';
 import { FileSystemService } from '@/services/file-system-service.js';
+import { ClaudeHistoryReader } from '@/services/claude-history-reader.js';
 import { createLogger } from '@/services/logger.js';
 
 export function createFileSystemRoutes(
-  fileSystemService: FileSystemService
+  fileSystemService: FileSystemService,
+  historyReader: ClaudeHistoryReader
 ): Router {
   const router = Router();
   const logger = createLogger('FileSystemRoutes');
@@ -78,26 +82,112 @@ export function createFileSystemRoutes(
       requestId,
       path: req.query.path
     });
-    
+
     try {
       // Validate required parameters
       if (!req.query.path) {
         throw new CUIError('MISSING_PATH', 'path query parameter is required', 400);
       }
-      
+
       const result = await fileSystemService.readFile(req.query.path);
-      
+
       logger.debug('File read successfully', {
         requestId,
         path: result.path,
         size: result.size
       });
-      
+
       res.json(result);
     } catch (error) {
       logger.debug('Read file failed', {
         requestId,
         path: req.query.path,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      next(error);
+    }
+  });
+
+  // Download file (supports binary files, restricted to conversation cwd)
+  router.get('/download', async (req: Request<Record<string, never>, never, Record<string, never>, FileSystemDownloadQuery> & RequestWithRequestId, res, next) => {
+    const requestId = req.requestId;
+    logger.debug('Download file request', {
+      requestId,
+      path: req.query.path,
+      sessionId: req.query.sessionId
+    });
+
+    try {
+      // Validate required parameters
+      if (!req.query.path) {
+        throw new CUIError('MISSING_PATH', 'path query parameter is required', 400);
+      }
+      if (!req.query.sessionId) {
+        throw new CUIError('MISSING_SESSION_ID', 'sessionId query parameter is required', 400);
+      }
+
+      // Get conversation metadata to find the cwd
+      const metadata = await historyReader.getConversationMetadata(req.query.sessionId);
+      if (!metadata) {
+        throw new CUIError('CONVERSATION_NOT_FOUND', 'Conversation not found', 404);
+      }
+
+      // Get the cwd from the first message of the conversation
+      const messages = await historyReader.fetchConversation(req.query.sessionId);
+      if (messages.length === 0) {
+        throw new CUIError('NO_MESSAGES', 'No messages found in conversation', 404);
+      }
+
+      const conversationCwd = messages[0].cwd || metadata.projectPath;
+      if (!conversationCwd) {
+        throw new CUIError('NO_CWD', 'Could not determine conversation working directory', 400);
+      }
+
+      // Normalize paths for comparison
+      const normalizedCwd = path.normalize(conversationCwd);
+      const normalizedPath = path.normalize(req.query.path);
+
+      // Security check: Ensure requested path is within conversation's cwd
+      if (!normalizedPath.startsWith(normalizedCwd)) {
+        logger.warn('Download attempt outside conversation cwd', {
+          requestId,
+          sessionId: req.query.sessionId,
+          requestedPath: normalizedPath,
+          conversationCwd: normalizedCwd
+        });
+        throw new CUIError(
+          'PATH_OUTSIDE_CWD',
+          'Download is restricted to files within the conversation working directory',
+          403
+        );
+      }
+
+      // Download the file
+      const fileData = await fileSystemService.downloadFile(req.query.path);
+
+      // Set response headers for download
+      res.setHeader('Content-Type', fileData.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileData.filename)}"`);
+      res.setHeader('Content-Length', fileData.size);
+      res.setHeader('Last-Modified', new Date(fileData.lastModified).toUTCString());
+
+      logger.debug('File download successful', {
+        requestId,
+        path: req.query.path,
+        filename: fileData.filename,
+        size: fileData.size,
+        mimeType: fileData.mimeType,
+        sessionId: req.query.sessionId,
+        cwd: normalizedCwd
+      });
+
+      // Send the file buffer
+      res.send(fileData.buffer);
+    } catch (error) {
+      logger.debug('Download file failed', {
+        requestId,
+        path: req.query.path,
+        sessionId: req.query.sessionId,
         error: error instanceof Error ? error.message : String(error)
       });
       next(error);
