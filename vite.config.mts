@@ -12,7 +12,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icon-192x192.png', 'icon-512x512.png'],
-      manifest: false, // Use our existing manifest.json
+      manifest: false,
       strategies: 'injectManifest',
       srcDir: '.',
       filename: 'sw.ts',
@@ -44,6 +44,16 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
-    allowedHosts: ['wenbo-macbook.dala-cobia.ts.net', 'cui.wenbo.io', 'localhost', '127.0.0.1', 'cui1.wenbo.io', 'cui2.wenbo.io', 'cui.tai.chat', 'measurements-struggle-slight-campbell.trycloudflare.com'],
+    allowedHosts: [
+      'wenbo-macbook.dala-cobia.ts.net',
+      'cui.wenbo.io',
+      'localhost',
+      '127.0.0.1',
+      'cui1.wenbo.io',
+      'cui2.wenbo.io',
+      'cui.tai.chat',
+      'measurements-struggle-slight-campbell.trycloudflare.com',
+      '.ngrok-free.app' // <-- ADDED as per instructions
+    ],
   }
 })
