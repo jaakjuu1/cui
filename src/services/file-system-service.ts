@@ -239,6 +239,149 @@ export class FileSystemService {
   }
 
   /**
+   * Ensure uploads directory exists within the given session CWD
+   * Creates the directory if it doesn't exist
+   */
+  async ensureUploadsDirectory(sessionCwd: string): Promise<string> {
+    this.logger.debug('Ensuring uploads directory exists', { sessionCwd });
+
+    try {
+      // Validate the session CWD path
+      const safeCwd = await this.validatePath(sessionCwd);
+
+      // Create uploads path within the session CWD
+      const uploadsPath = path.join(safeCwd, 'uploads');
+
+      // Check if uploads directory already exists
+      try {
+        const stats = await fs.stat(uploadsPath);
+        if (stats.isDirectory()) {
+          this.logger.debug('Uploads directory already exists', { uploadsPath });
+          return uploadsPath;
+        } else {
+          throw new CUIError('NOT_A_DIRECTORY', 'uploads path exists but is not a directory', 400);
+        }
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode !== 'ENOENT') {
+          throw error;
+        }
+        // Directory doesn't exist, create it
+      }
+
+      // Create the uploads directory
+      await fs.mkdir(uploadsPath, { recursive: true });
+
+      this.logger.debug('Uploads directory created successfully', { uploadsPath });
+      return uploadsPath;
+    } catch (error) {
+      if (error instanceof CUIError) {
+        throw error;
+      }
+
+      this.logger.error('Error ensuring uploads directory', error, { sessionCwd });
+      throw new CUIError('CREATE_UPLOADS_DIR_FAILED', `Failed to create uploads directory: ${error}`, 500);
+    }
+  }
+
+  /**
+   * Upload a file to the specified destination path with security checks
+   * Handles duplicate filenames by appending timestamps
+   */
+  async uploadFile(
+    destinationPath: string,
+    buffer: Buffer,
+    filename: string
+  ): Promise<{ path: string; size: number }> {
+    this.logger.debug('Upload file requested', { destinationPath, filename, size: buffer.length });
+
+    try {
+      // Validate filename doesn't contain path separators or invalid characters
+      const baseFilename = path.basename(filename);
+      if (baseFilename !== filename) {
+        throw new CUIError('INVALID_FILENAME', 'Filename must not contain path separators', 400);
+      }
+
+      // Check for null bytes in filename
+      if (filename.includes('\u0000')) {
+        throw new CUIError('INVALID_FILENAME', 'Filename contains null bytes', 400);
+      }
+
+      // Check for invalid characters in filename
+      if (/[<>:|?*]/.test(filename)) {
+        throw new CUIError('INVALID_FILENAME', 'Filename contains invalid characters', 400);
+      }
+
+      // Reject hidden files (starting with .)
+      if (filename.startsWith('.')) {
+        throw new CUIError('INVALID_FILENAME', 'Hidden files are not allowed', 400);
+      }
+
+      // Check file size
+      if (buffer.length > this.maxFileSize) {
+        throw new CUIError(
+          'FILE_TOO_LARGE',
+          `File size (${buffer.length} bytes) exceeds maximum allowed size (${this.maxFileSize} bytes)`,
+          413
+        );
+      }
+
+      // Validate destination path
+      const safeDestPath = await this.validatePath(destinationPath);
+
+      // Ensure destination is a directory
+      const stats = await fs.stat(safeDestPath);
+      if (!stats.isDirectory()) {
+        throw new CUIError('NOT_A_DIRECTORY', `Destination path is not a directory: ${destinationPath}`, 400);
+      }
+
+      // Construct final file path
+      let finalPath = path.join(safeDestPath, filename);
+
+      // Handle duplicate filenames by appending timestamp
+      if (existsSync(finalPath)) {
+        const ext = path.extname(filename);
+        const nameWithoutExt = path.basename(filename, ext);
+        const timestamp = Date.now();
+        const newFilename = `${nameWithoutExt}.${timestamp}${ext}`;
+        finalPath = path.join(safeDestPath, newFilename);
+
+        this.logger.debug('Duplicate filename detected, using timestamp suffix', {
+          originalFilename: filename,
+          newFilename
+        });
+      }
+
+      // Write file to disk
+      await fs.writeFile(finalPath, buffer);
+
+      this.logger.debug('File uploaded successfully', {
+        path: finalPath,
+        size: buffer.length
+      });
+
+      return {
+        path: finalPath,
+        size: buffer.length
+      };
+    } catch (error) {
+      if (error instanceof CUIError) {
+        throw error;
+      }
+
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode === 'ENOENT') {
+        throw new CUIError('PATH_NOT_FOUND', `Destination path not found: ${destinationPath}`, 404);
+      } else if (errorCode === 'EACCES') {
+        throw new CUIError('ACCESS_DENIED', `Access denied to destination: ${destinationPath}`, 403);
+      }
+
+      this.logger.error('Error uploading file', error, { destinationPath, filename });
+      throw new CUIError('UPLOAD_FILE_FAILED', `Failed to upload file: ${error}`, 500);
+    }
+  }
+
+  /**
    * Get MIME type based on file extension
    */
   private getMimeType(filePath: string): string {

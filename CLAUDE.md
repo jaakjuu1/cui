@@ -71,7 +71,7 @@ The application is built around a **single-port Express server** (default: 3001)
 
 **Utilities:**
 - `JsonLinesParser`: Parses newline-delimited JSON streams from Claude CLI
-- `FileSystemService`: Handles file operations with gitignore support
+- `FileSystemService`: Handles file operations with gitignore support, file downloads, and file uploads (to conversation's `uploads/` directory)
 - `ToolMetricsService`: Tracks tool usage metrics per conversation
 - `NotificationService`: Push notifications (ntfy/web-push)
 - `GeminiService`: Dictation via Gemini 2.5 Flash
@@ -96,6 +96,8 @@ All routes under `/api/` except:
 - `DELETE /api/conversations/:id` - Stop/archive conversation
 - `GET /api/stream/:streamingId` - SSE stream for real-time updates
 - `GET /api/logs/stream` - Server log streaming
+- `GET /api/filesystem/download` - Download single file from conversation
+- `POST /api/filesystem/upload` - Upload files to conversation's uploads directory
 
 ### Configuration
 
