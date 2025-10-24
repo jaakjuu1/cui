@@ -168,6 +168,18 @@ export function ConversationView() {
 
     setError(null);
 
+    // CRITICAL: Add user message to UI immediately (optimistic update)
+    // This is necessary because SSE connection may not be established yet when backend sends the message
+    const optimisticUserMessage: ChatMessage = {
+      id: '',  // No ID yet from backend
+      messageId: `optimistic-user-${Date.now()}`,
+      type: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+      workingDirectory: workingDirectory || currentWorkingDirectory,
+    };
+    addMessage(optimisticUserMessage);
+
     try {
       const response = await api.startConversation({
         resumedSessionId: sessionId,
@@ -177,10 +189,16 @@ export function ConversationView() {
         permissionMode
       });
 
-      // Navigate immediately to the new session
-      navigate(`/c/${response.sessionId}`);
+      // Only navigate if the session ID changed
+      if (response.sessionId !== sessionId) {
+        navigate(`/c/${response.sessionId}`);
+      } else {
+        // Same session, just update streaming ID to start receiving SSE events
+        setStreamingId(response.streamingId);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to send message');
+      // TODO: Remove the optimistic message on error
     }
   };
 

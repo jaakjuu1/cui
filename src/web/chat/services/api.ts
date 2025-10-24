@@ -480,6 +480,22 @@ class ApiService {
       throw error;
     }
   }
+
+  /**
+   * List uploaded files in a conversation's uploads directory
+   * @param sessionId - The conversation session ID
+   */
+  async listUploadedFiles(sessionId: string): Promise<{
+    files: Array<{
+      name: string;
+      path: string;
+      size?: number;
+      lastModified: string;
+    }>;
+  }> {
+    const searchParams = new URLSearchParams({ sessionId });
+    return this.apiCall(`/api/filesystem/uploads?${searchParams}`);
+  }
 }
 
 export const api = new ApiService();
