@@ -1,12 +1,15 @@
 import { Router, Request } from 'express';
 import * as path from 'path';
+import multer from 'multer';
 import {
   CUIError,
   FileSystemListQuery,
   FileSystemListResponse,
   FileSystemReadQuery,
   FileSystemReadResponse,
-  FileSystemDownloadQuery
+  FileSystemDownloadQuery,
+  FileSystemUploadQuery,
+  FileUploadResponse
 } from '@/types/index.js';
 import { RequestWithRequestId } from '@/types/express.js';
 import { FileSystemService } from '@/services/file-system-service.js';
@@ -19,6 +22,15 @@ export function createFileSystemRoutes(
 ): Router {
   const router = Router();
   const logger = createLogger('FileSystemRoutes');
+
+  // Configure multer for file uploads (store in memory)
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB limit
+      files: 10 // Max 10 files per request
+    }
+  });
 
   // Helper to strictly parse boolean query params (accepts "true"/"false" and booleans)
   const parseBooleanParam = (value: unknown, paramName: string): boolean | undefined => {
@@ -187,6 +199,140 @@ export function createFileSystemRoutes(
       logger.debug('Download file failed', {
         requestId,
         path: req.query.path,
+        sessionId: req.query.sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      next(error);
+    }
+  });
+
+  // Upload files (restricted to conversation cwd/uploads directory)
+  router.post('/upload', upload.array('files'), async (req: Request<Record<string, never>, FileUploadResponse, Record<string, never>, FileSystemUploadQuery> & RequestWithRequestId, res, next) => {
+    const requestId = req.requestId;
+    logger.debug('Upload file request', {
+      requestId,
+      sessionId: req.query.sessionId,
+      fileCount: req.files ? (req.files as Express.Multer.File[]).length : 0
+    });
+
+    try {
+      // Validate required parameters
+      if (!req.query.sessionId) {
+        throw new CUIError('MISSING_SESSION_ID', 'sessionId query parameter is required', 400);
+      }
+
+      // Check if files were uploaded
+      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+        throw new CUIError('NO_FILES', 'No files were uploaded', 400);
+      }
+
+      // Get conversation metadata to find the cwd
+      const metadata = await historyReader.getConversationMetadata(req.query.sessionId);
+      if (!metadata) {
+        throw new CUIError('CONVERSATION_NOT_FOUND', 'Conversation not found', 404);
+      }
+
+      // Get the cwd from the first message of the conversation
+      const messages = await historyReader.fetchConversation(req.query.sessionId);
+      if (messages.length === 0) {
+        throw new CUIError('NO_MESSAGES', 'No messages found in conversation', 404);
+      }
+
+      const conversationCwd = messages[0].cwd || metadata.projectPath;
+      if (!conversationCwd) {
+        throw new CUIError('NO_CWD', 'Could not determine conversation working directory', 400);
+      }
+
+      // Ensure uploads directory exists
+      const uploadsDir = await fileSystemService.ensureUploadsDirectory(conversationCwd);
+
+      // Use custom destination path if provided, but ensure it's within cwd
+      let destinationPath = uploadsDir;
+      if (req.query.destinationPath) {
+        // If custom path is provided, it should be relative to cwd
+        const customPath = path.isAbsolute(req.query.destinationPath)
+          ? req.query.destinationPath
+          : path.join(conversationCwd, req.query.destinationPath);
+
+        const normalizedCwd = path.normalize(conversationCwd);
+        const normalizedCustomPath = path.normalize(customPath);
+
+        // Security check: Ensure custom path is within conversation's cwd
+        if (!normalizedCustomPath.startsWith(normalizedCwd)) {
+          logger.warn('Upload attempt outside conversation cwd', {
+            requestId,
+            sessionId: req.query.sessionId,
+            requestedPath: normalizedCustomPath,
+            conversationCwd: normalizedCwd
+          });
+          throw new CUIError(
+            'PATH_OUTSIDE_CWD',
+            'Upload is restricted to paths within the conversation working directory',
+            403
+          );
+        }
+
+        destinationPath = normalizedCustomPath;
+      }
+
+      // Upload all files
+      const uploadedFiles: FileUploadResponse['files'] = [];
+      const errors: FileUploadResponse['errors'] = [];
+
+      for (const file of req.files as Express.Multer.File[]) {
+        try {
+          const result = await fileSystemService.uploadFile(
+            destinationPath,
+            file.buffer,
+            file.originalname
+          );
+
+          uploadedFiles.push({
+            originalName: file.originalname,
+            uploadedPath: result.path,
+            size: result.size
+          });
+
+          logger.debug('File uploaded successfully', {
+            requestId,
+            originalName: file.originalname,
+            uploadedPath: result.path,
+            size: result.size,
+            sessionId: req.query.sessionId
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.error('File upload failed', error, {
+            requestId,
+            filename: file.originalname,
+            sessionId: req.query.sessionId
+          });
+
+          errors.push({
+            filename: file.originalname,
+            error: errorMessage
+          });
+        }
+      }
+
+      // Prepare response
+      const response: FileUploadResponse = {
+        success: uploadedFiles.length > 0,
+        files: uploadedFiles,
+        errors: errors.length > 0 ? errors : undefined
+      };
+
+      logger.debug('Upload request completed', {
+        requestId,
+        sessionId: req.query.sessionId,
+        successCount: uploadedFiles.length,
+        errorCount: errors.length
+      });
+
+      res.status(uploadedFiles.length > 0 ? 200 : 400).json(response);
+    } catch (error) {
+      logger.debug('Upload request failed', {
+        requestId,
         sessionId: req.query.sessionId,
         error: error instanceof Error ? error.message : String(error)
       });

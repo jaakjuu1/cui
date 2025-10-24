@@ -11,6 +11,7 @@ import type {
   FileSystemListQuery,
   FileSystemListResponse,
   CommandsResponse,
+  FileUploadResponse,
 } from '../types';
 import { getAuthToken } from '../../hooks/useAuth';
 type GeminiHealthResponse = { status: 'healthy' | 'unhealthy'; message: string; apiKeyValid: boolean };
@@ -372,6 +373,110 @@ class ApiService {
       console.log(`[API] ZIP archive downloaded successfully: ${filename}`);
     } catch (error) {
       console.error(`[API] Bulk download failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload a single file to a conversation's uploads directory
+   * @param file - The file to upload
+   * @param sessionId - The conversation session ID
+   * @param destinationPath - Optional custom destination path (relative to conversation CWD)
+   */
+  async uploadFile(
+    file: File,
+    sessionId: string,
+    destinationPath?: string
+  ): Promise<FileUploadResponse> {
+    const authToken = getAuthToken();
+    const searchParams = new URLSearchParams({ sessionId });
+
+    if (destinationPath) {
+      searchParams.append('destinationPath', destinationPath);
+    }
+
+    const url = `${this.baseUrl}/api/filesystem/upload?${searchParams}`;
+
+    console.log(`[API] Uploading file: ${file.name} for session ${sessionId}`);
+
+    const formData = new FormData();
+    formData.append('files', file);
+
+    const headers: Record<string, string> = {};
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error((data as ApiError).error || `Upload failed with status ${response.status}`);
+      }
+
+      console.log(`[API] File uploaded successfully:`, data);
+      return data;
+    } catch (error) {
+      console.error(`[API] Upload failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload multiple files to a conversation's uploads directory
+   * @param files - Array of files to upload
+   * @param sessionId - The conversation session ID
+   * @param destinationPath - Optional custom destination path (relative to conversation CWD)
+   */
+  async uploadFiles(
+    files: File[],
+    sessionId: string,
+    destinationPath?: string
+  ): Promise<FileUploadResponse> {
+    const authToken = getAuthToken();
+    const searchParams = new URLSearchParams({ sessionId });
+
+    if (destinationPath) {
+      searchParams.append('destinationPath', destinationPath);
+    }
+
+    const url = `${this.baseUrl}/api/filesystem/upload?${searchParams}`;
+
+    console.log(`[API] Uploading ${files.length} files for session ${sessionId}`);
+
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+
+    const headers: Record<string, string> = {};
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error((data as ApiError).error || `Upload failed with status ${response.status}`);
+      }
+
+      console.log(`[API] Files uploaded successfully:`, data);
+      return data;
+    } catch (error) {
+      console.error(`[API] Upload failed:`, error);
       throw error;
     }
   }

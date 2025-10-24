@@ -3,6 +3,7 @@ import { Download, FileText, FolderOpen, Package } from 'lucide-react';
 import { api } from '../services/api';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { UploadFileButton } from './UploadFileButton';
 import {
   extractFilePathsFromConversation,
   getUniqueFilePaths,
@@ -24,11 +25,20 @@ interface ConversationFilesSidebarProps {
 export function ConversationFilesSidebar({ messages, sessionId }: ConversationFilesSidebarProps) {
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [uploadTrigger, setUploadTrigger] = useState(0);
 
   // Extract files from conversation
   const detectedFiles = useMemo(() => {
     return extractFilePathsFromConversation(messages);
-  }, [messages]);
+  }, [messages, uploadTrigger]);
+
+  const handleUploadComplete = (uploadedPaths: string[]) => {
+    console.log('Files uploaded:', uploadedPaths);
+    // Trigger re-extraction of file paths from conversation
+    // Note: Uploaded files won't appear in detectedFiles until they're referenced in messages
+    // This is expected behavior - the sidebar shows files Claude has worked with
+    setUploadTrigger(prev => prev + 1);
+  };
 
   const handleDownloadAll = async () => {
     try {
@@ -56,13 +66,18 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
   if (detectedFiles.length === 0) {
     return (
       <div className="w-full border rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-3">
           <FolderOpen className="w-5 h-5" />
           <h3 className="font-semibold">Files</h3>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground mb-3">
           No files detected in this conversation
         </p>
+        <UploadFileButton
+          sessionId={sessionId}
+          onUploadComplete={handleUploadComplete}
+          multiple={true}
+        />
       </div>
     );
   }
@@ -80,15 +95,23 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
         </p>
       </div>
       <div className="p-4 space-y-4">
-        <Button
-          onClick={handleDownloadAll}
-          disabled={isDownloadingAll}
-          className="w-full gap-2"
-          variant="default"
-        >
-          <Package className="w-4 h-4" />
-          {isDownloadingAll ? 'Downloading...' : `Download All as ZIP (${detectedFiles.length} files)`}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleDownloadAll}
+            disabled={isDownloadingAll}
+            className="flex-1 gap-2"
+            variant="default"
+          >
+            <Package className="w-4 h-4" />
+            {isDownloadingAll ? 'Downloading...' : `Download All (${detectedFiles.length})`}
+          </Button>
+          <UploadFileButton
+            sessionId={sessionId}
+            onUploadComplete={handleUploadComplete}
+            multiple={true}
+            variant="default"
+          />
+        </div>
 
         {downloadError && (
           <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded">
