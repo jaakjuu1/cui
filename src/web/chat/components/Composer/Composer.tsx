@@ -49,6 +49,7 @@ export interface ComposerProps {
   onDirectoryChange?: (directory: string) => void;
   recentDirectories?: Record<string, { lastDate: string; shortname: string }>;
   getMostRecentWorkingDirectory?: () => string | null;
+  onCopyProject?: (sourceDirectory: string) => void;
 
   // Model selection
   model?: string;
@@ -89,26 +90,35 @@ interface DirectoryDropdownProps {
   selectedDirectory: string;
   recentDirectories: Record<string, { lastDate: string; shortname: string }>;
   onDirectorySelect: (directory: string) => void;
+  onCopyProject?: (sourceDirectory: string) => void;
 }
 
-function DirectoryDropdown({ 
-  selectedDirectory, 
-  recentDirectories, 
-  onDirectorySelect 
+function DirectoryDropdown({
+  selectedDirectory,
+  recentDirectories,
+  onDirectorySelect,
+  onCopyProject
 }: DirectoryDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   // Convert recentDirectories to sorted array and create options
-  const options: DropdownOption<string>[] = Object.entries(recentDirectories)
-    .map(([path, data]) => ({
-      value: path,
-      label: data.shortname,
-    }))
-    .sort((a, b) => {
-      const dateA = recentDirectories[a.value].lastDate;
-      const dateB = recentDirectories[b.value].lastDate;
-      return new Date(dateB).getTime() - new Date(dateA).getTime();
-    });
+  // Add a special "Copy Project" option at the bottom if handler is provided
+  const options: DropdownOption<string>[] = [
+    ...Object.entries(recentDirectories)
+      .map(([path, data]) => ({
+        value: path,
+        label: data.shortname,
+      }))
+      .sort((a, b) => {
+        const dateA = recentDirectories[a.value].lastDate;
+        const dateB = recentDirectories[b.value].lastDate;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      }),
+    // Add separator and copy action if handler is provided
+    ...(onCopyProject && selectedDirectory !== 'Select directory' ? [
+      { value: '__copy_project__', label: '✂️ Copy Current Project...' }
+    ] : [])
+  ];
 
   // Get shortname for display
   const displayText = selectedDirectory === 'Select directory' 
@@ -120,6 +130,16 @@ function DirectoryDropdown({
       options={options}
       value={selectedDirectory}
       onChange={(value) => {
+        // Handle special "Copy Project" action
+        if (value === '__copy_project__') {
+          if (onCopyProject) {
+            onCopyProject(selectedDirectory);
+          }
+          setIsOpen(false);
+          return;
+        }
+
+        // Normal directory selection
         onDirectorySelect(value);
         setIsOpen(false);
       }}
@@ -128,6 +148,11 @@ function DirectoryDropdown({
       placeholder="Enter a directory..."
       showFilterInput={true}
       filterPredicate={(option, searchText) => {
+        // Don't filter the copy project option
+        if (option.value === '__copy_project__') {
+          return true;
+        }
+
         // Allow filtering by path
         if (option.value.toLowerCase().includes(searchText.toLowerCase())) {
           return true;
@@ -321,6 +346,7 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
   onDirectoryChange,
   recentDirectories = {},
   getMostRecentWorkingDirectory,
+  onCopyProject,
   model = 'default',
   onModelChange,
   availableModels = ['default', 'opus', 'sonnet'],
@@ -1057,6 +1083,7 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
                       selectedDirectory={selectedDirectory}
                       recentDirectories={recentDirectories}
                       onDirectorySelect={handleDirectorySelect}
+                      onCopyProject={onCopyProject}
                     />
                   )}
 

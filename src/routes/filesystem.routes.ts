@@ -9,7 +9,9 @@ import {
   FileSystemReadResponse,
   FileSystemDownloadQuery,
   FileSystemUploadQuery,
-  FileUploadResponse
+  FileUploadResponse,
+  CopyProjectQuery,
+  CopyProjectResponse
 } from '@/types/index.js';
 import { RequestWithRequestId } from '@/types/express.js';
 import { FileSystemService } from '@/services/file-system-service.js';
@@ -484,6 +486,48 @@ export function createFileSystemRoutes(
         requestId,
         sessionId: req.query.sessionId,
         filePath: req.query.filePath,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      next(error);
+    }
+  });
+
+  // Copy project directory
+  router.post('/copy-project', async (req: Request<Record<string, never>, CopyProjectResponse, Record<string, never>, CopyProjectQuery> & RequestWithRequestId, res, next) => {
+    const requestId = req.requestId;
+    logger.debug('Copy project request', {
+      requestId,
+      sourceDir: req.query.sourceDir,
+      targetDir: req.query.targetDir
+    });
+
+    try {
+      // Validate required parameters
+      if (!req.query.sourceDir) {
+        throw new CUIError('MISSING_SOURCE_DIR', 'sourceDir query parameter is required', 400);
+      }
+      if (!req.query.targetDir) {
+        throw new CUIError('MISSING_TARGET_DIR', 'targetDir query parameter is required', 400);
+      }
+
+      // Copy the project directory
+      const result = await fileSystemService.copyProjectDirectory(
+        req.query.sourceDir,
+        req.query.targetDir
+      );
+
+      logger.info('Project copied successfully', {
+        requestId,
+        sourceDir: req.query.sourceDir,
+        targetDir: result.path
+      });
+
+      res.json(result);
+    } catch (error) {
+      logger.error('Copy project failed', error, {
+        requestId,
+        sourceDir: req.query.sourceDir,
+        targetDir: req.query.targetDir,
         error: error instanceof Error ? error.message : String(error)
       });
       next(error);

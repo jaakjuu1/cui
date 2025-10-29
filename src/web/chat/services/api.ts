@@ -12,6 +12,7 @@ import type {
   FileSystemListResponse,
   CommandsResponse,
   FileUploadResponse,
+  CopyProjectResponse,
 } from '../types';
 import { getAuthToken } from '../../hooks/useAuth';
 type GeminiHealthResponse = { status: 'healthy' | 'unhealthy'; message: string; apiKeyValid: boolean };
@@ -538,6 +539,18 @@ class ApiService {
   }> {
     const searchParams = new URLSearchParams({ sessionId });
     return this.apiCall(`/api/filesystem/uploads?${searchParams}`);
+  }
+
+  /**
+   * Copy a project directory (copies .claude folder and creates empty uploads/output folders)
+   * @param sourceDir - The source directory path (must be a valid Claude project with .claude folder)
+   * @param targetDir - The target directory path (must not exist)
+   */
+  async copyProject(sourceDir: string, targetDir: string): Promise<CopyProjectResponse> {
+    const searchParams = new URLSearchParams({ sourceDir, targetDir });
+    return this.apiCall(`/api/filesystem/copy-project?${searchParams}`, {
+      method: 'POST',
+    });
   }
 }
 

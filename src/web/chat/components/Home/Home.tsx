@@ -4,27 +4,31 @@ import { useConversations } from '../../contexts/ConversationsContext';
 import { api } from '../../services/api';
 import { Header } from './Header';
 import { Composer, ComposerRef } from '@/web/chat/components/Composer';
+import { CopyProjectDialog } from '@/web/chat/components/CopyProjectDialog';
 import { TaskTabs } from './TaskTabs';
 import { TaskList } from './TaskList';
 
 export function Home() {
   const navigate = useNavigate();
-  const { 
-    conversations, 
-    loading, 
-    loadingMore, 
-    hasMore, 
-    error, 
-    loadConversations, 
+  const {
+    conversations,
+    loading,
+    loadingMore,
+    hasMore,
+    error,
+    loadConversations,
     loadMoreConversations,
     recentDirectories,
-    getMostRecentWorkingDirectory 
+    getMostRecentWorkingDirectory
   } = useConversations();
   const [activeTab, setActiveTab] = useState<'tasks' | 'history' | 'archive'>('tasks');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const conversationCountRef = useRef(conversations.length);
   const composerRef = useRef<ComposerRef>(null);
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [copySourceDirectory, setCopySourceDirectory] = useState<string | undefined>();
+  const [selectedDirectory, setSelectedDirectory] = useState<string | undefined>(undefined);
 
   // Update the ref whenever conversations change
   useEffect(() => {
@@ -206,9 +210,36 @@ export function Home() {
     setStagedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleCopyProjectClick = (sourceDirectory: string) => {
+    setCopySourceDirectory(sourceDirectory);
+    setCopyDialogOpen(true);
+  };
+
+  const handleCopyProjectSuccess = (newPath: string) => {
+    // Automatically select the new directory in the composer
+    setSelectedDirectory(newPath);
+
+    // Show a helpful message
+    console.log(`✓ Project copied to: ${newPath}`);
+
+    // Focus the composer input so user can start working immediately
+    setTimeout(() => {
+      composerRef.current?.focusInput();
+    }, 100);
+  };
+
   return (
     <div className="flex flex-col h-screen w-full bg-background">
       <Header />
+
+      {/* Copy Project Dialog */}
+      <CopyProjectDialog
+        open={copyDialogOpen}
+        onOpenChange={setCopyDialogOpen}
+        sourceDirectory={copySourceDirectory}
+        recentDirectories={recentDirectories}
+        onSuccess={handleCopyProjectSuccess}
+      />
 
       <main className="relative flex flex-1 w-full h-full overflow-hidden transition-all duration-[250ms] z-[1]">
         <div className="flex flex-col h-full w-full">
@@ -234,7 +265,7 @@ export function Home() {
               <div className="w-full">
                 <Composer
                   ref={composerRef}
-                  workingDirectory={recentWorkingDirectory}
+                  workingDirectory={selectedDirectory || recentWorkingDirectory}
                   onSubmit={handleComposerSubmit}
                   isLoading={isSubmitting}
                   placeholder="Describe your task"
@@ -244,10 +275,14 @@ export function Home() {
                   enableFileAutocomplete={true}
                   recentDirectories={recentDirectories}
                   getMostRecentWorkingDirectory={getMostRecentWorkingDirectory}
+                  onCopyProject={handleCopyProjectClick}
                   stagedFiles={stagedFiles}
                   onFilesStaged={handleFilesStaged}
                   onRemoveStagedFile={handleRemoveStagedFile}
                   onDirectoryChange={(directory) => {
+                    // Update local state to keep control
+                    setSelectedDirectory(directory);
+
                     // Focus input after directory change
                     setTimeout(() => {
                       composerRef.current?.focusInput();

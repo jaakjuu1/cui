@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, constants } from 'fs';
 import ignore from 'ignore';
+import fse from 'fs-extra';
 import { CUIError, FileSystemEntry } from '@/types/index.js';
 import { createLogger } from './logger.js';
 import { type Logger } from './logger.js';
@@ -711,6 +712,188 @@ export class FileSystemService {
         `Failed to validate executable: ${error}`,
         500
       );
+    }
+  }
+
+  /**
+   * Copy a project directory - copies .claude folder and creates empty uploads/output folders
+   * This is used to create a new project based on an existing one
+   */
+  async copyProjectDirectory(
+    sourceDir: string,
+    targetDir: string
+  ): Promise<{ path: string; success: boolean }> {
+    this.logger.debug('Copy project directory requested', { sourceDir, targetDir });
+
+    try {
+      // Validate source directory (allow .claude subdirectory for validation)
+      const safeSourceDir = path.normalize(sourceDir);
+
+      // Check if source directory is absolute
+      if (!path.isAbsolute(safeSourceDir)) {
+        throw new CUIError('INVALID_PATH', 'Source path must be absolute', 400);
+      }
+
+      // Check if source exists and is a directory
+      let sourceStats;
+      try {
+        sourceStats = await fs.stat(safeSourceDir);
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === 'ENOENT') {
+          throw new CUIError('SOURCE_NOT_FOUND', `Source directory not found: ${sourceDir}`, 404);
+        }
+        throw error;
+      }
+
+      if (!sourceStats.isDirectory()) {
+        throw new CUIError('SOURCE_NOT_A_DIRECTORY', 'Source path is not a directory', 400);
+      }
+
+      // Check if source has .claude folder
+      const claudeSourcePath = path.join(safeSourceDir, '.claude');
+      let claudeStats;
+      try {
+        claudeStats = await fs.stat(claudeSourcePath);
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === 'ENOENT') {
+          throw new CUIError(
+            'NOT_A_CLAUDE_PROJECT',
+            'Source directory is not a valid Claude project (missing .claude folder)',
+            400
+          );
+        }
+        throw error;
+      }
+
+      if (!claudeStats.isDirectory()) {
+        throw new CUIError('INVALID_CLAUDE_FOLDER', '.claude exists but is not a directory', 400);
+      }
+
+      // Validate target directory
+      const safeTargetDir = path.normalize(targetDir);
+
+      // Check if target directory is absolute
+      if (!path.isAbsolute(safeTargetDir)) {
+        throw new CUIError('INVALID_PATH', 'Target path must be absolute', 400);
+      }
+
+      // Check for path traversal
+      if (targetDir.includes('..')) {
+        throw new CUIError('PATH_TRAVERSAL_DETECTED', 'Invalid path: path traversal detected', 400);
+      }
+
+      // Check if target already exists
+      try {
+        await fs.stat(safeTargetDir);
+        throw new CUIError(
+          'TARGET_EXISTS',
+          `Target directory already exists: ${targetDir}. Please choose a different name.`,
+          409
+        );
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode !== 'ENOENT') {
+          throw error;
+        }
+        // Target doesn't exist - this is what we want
+      }
+
+      // Validate target path segments
+      const segments = safeTargetDir.split(path.sep);
+      for (const segment of segments) {
+        if (!segment) continue;
+
+        // Check for null bytes
+        if (segment.includes('\u0000')) {
+          throw new CUIError('INVALID_PATH', 'Path contains null bytes', 400);
+        }
+
+        // Check for invalid characters
+        if (/[<>:|?*]/.test(segment)) {
+          throw new CUIError('INVALID_PATH', 'Path contains invalid characters', 400);
+        }
+      }
+
+      // Create target directory
+      await fs.mkdir(safeTargetDir, { recursive: true });
+      this.logger.debug('Target directory created', { targetDir: safeTargetDir });
+
+      // Copy .claude folder
+      const claudeTargetPath = path.join(safeTargetDir, '.claude');
+      await fse.copy(claudeSourcePath, claudeTargetPath, {
+        overwrite: false,
+        errorOnExist: true,
+        preserveTimestamps: true
+      });
+      this.logger.debug('.claude folder copied successfully', {
+        from: claudeSourcePath,
+        to: claudeTargetPath
+      });
+
+      // Copy CLAUDE.md if it exists
+      const claudeMdSourcePath = path.join(safeSourceDir, 'CLAUDE.md');
+      const claudeMdTargetPath = path.join(safeTargetDir, 'CLAUDE.md');
+      try {
+        await fs.access(claudeMdSourcePath);
+        await fse.copy(claudeMdSourcePath, claudeMdTargetPath, {
+          overwrite: false,
+          errorOnExist: true,
+          preserveTimestamps: true
+        });
+        this.logger.debug('CLAUDE.md copied successfully', {
+          from: claudeMdSourcePath,
+          to: claudeMdTargetPath
+        });
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === 'ENOENT') {
+          // CLAUDE.md doesn't exist in source, that's okay - skip it
+          this.logger.debug('CLAUDE.md not found in source directory, skipping', { sourceDir: safeSourceDir });
+        } else {
+          // Some other error occurred, log it but don't fail the whole operation
+          this.logger.warn('Failed to copy CLAUDE.md, but continuing', {
+            from: claudeMdSourcePath,
+            to: claudeMdTargetPath,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      // Create empty uploads directory
+      const uploadsPath = path.join(safeTargetDir, 'uploads');
+      await fs.mkdir(uploadsPath, { recursive: true });
+      this.logger.debug('Empty uploads directory created', { uploadsPath });
+
+      // Create empty output directory
+      const outputPath = path.join(safeTargetDir, 'output');
+      await fs.mkdir(outputPath, { recursive: true });
+      this.logger.debug('Empty output directory created', { outputPath });
+
+      this.logger.info('Project directory copied successfully', {
+        sourceDir: safeSourceDir,
+        targetDir: safeTargetDir
+      });
+
+      return {
+        path: safeTargetDir,
+        success: true
+      };
+    } catch (error) {
+      if (error instanceof CUIError) {
+        throw error;
+      }
+
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode === 'EACCES') {
+        throw new CUIError('ACCESS_DENIED', 'Permission denied during copy operation', 403);
+      } else if (errorCode === 'ENOSPC') {
+        throw new CUIError('NO_SPACE', 'Not enough disk space to copy project', 507);
+      }
+
+      this.logger.error('Error copying project directory', error, { sourceDir, targetDir });
+      throw new CUIError('COPY_PROJECT_FAILED', `Failed to copy project: ${error}`, 500);
     }
   }
 

@@ -19,6 +19,7 @@ import type {
   CommandsResponse,
   GeminiHealthResponse,
   FileUploadResponse,
+  CopyProjectResponse,
 } from '@/types';
 
 // Import ContentBlock from Anthropic SDK
@@ -44,6 +45,7 @@ export type {
   CommandsResponse,
   GeminiHealthResponse,
   FileUploadResponse,
+  CopyProjectResponse,
 };
 
 // Chat-specific types

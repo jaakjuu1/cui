@@ -262,6 +262,16 @@ export interface FileUploadResponse {
   errors?: FileUploadError[];
 }
 
+export interface CopyProjectQuery {
+  sourceDir: string;
+  targetDir: string;
+}
+
+export interface CopyProjectResponse {
+  success: boolean;
+  path: string;
+}
+
 // Session Info Database types for lowdb
 export interface SessionInfo {
   custom_name: string;          // Custom name for the session, default: ""
