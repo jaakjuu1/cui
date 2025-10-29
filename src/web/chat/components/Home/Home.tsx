@@ -122,18 +122,21 @@ export function Home() {
         sessionIdToNavigate = response.sessionId;
 
         try {
-          // Wait a bit for the conversation to be initialized and persisted
-          // The conversation needs to exist in ~/.claude/ before we can upload files
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Wait for the conversation to be initialized and persisted
+          // The Claude CLI process needs time to create the JSONL file in ~/.claude/
+          // Start with a longer initial delay to give the process time to initialize
+          console.log(`Waiting for conversation ${response.sessionId} to be persisted...`);
+          await new Promise(resolve => setTimeout(resolve, 2500));
 
-          // Retry upload up to 3 times with exponential backoff
+          // Retry upload up to 5 times with longer delays
           let uploadSuccess = false;
           let lastError: Error | null = null;
 
-          for (let attempt = 1; attempt <= 3; attempt++) {
+          for (let attempt = 1; attempt <= 5; attempt++) {
             try {
+              console.log(`Upload attempt ${attempt}/5 for conversation ${response.sessionId}`);
               const uploadResponse = await api.uploadFiles(stagedFiles, response.sessionId, 'uploads');
-              console.log(`Uploaded ${stagedFiles.length} staged files to conversation ${response.sessionId}`);
+              console.log(`✓ Uploaded ${stagedFiles.length} staged files to conversation ${response.sessionId}`);
 
               // Get uploaded file paths for logging
               const uploadedFilePaths = uploadResponse.files.map((f: { uploadedPath: string }) => f.uploadedPath);
@@ -146,17 +149,19 @@ export function Home() {
               break; // Success, exit retry loop
             } catch (err) {
               lastError = err instanceof Error ? err : new Error(String(err));
-              console.log(`Upload attempt ${attempt} failed, retrying...`, err);
+              console.log(`✗ Upload attempt ${attempt}/5 failed: ${lastError.message}`);
 
-              if (attempt < 3) {
-                // Wait before retrying (exponential backoff: 500ms, 1000ms)
-                await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+              if (attempt < 5) {
+                // Wait before retrying with exponential backoff: 1s, 2s, 3s, 4s
+                const retryDelay = 1000 * attempt;
+                console.log(`  Retrying in ${retryDelay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
               }
             }
           }
 
           if (!uploadSuccess) {
-            throw lastError || new Error('Upload failed after 3 attempts');
+            throw lastError || new Error('Upload failed after 5 attempts');
           }
         } catch (uploadError) {
           console.error('Failed to upload staged files:', uploadError);
@@ -175,7 +180,16 @@ export function Home() {
       }
 
       // Navigate to the conversation page
-      navigate(`/c/${sessionIdToNavigate}`);
+      // Pass the initial user message in state so it can be displayed optimistically
+      // (Claude CLI doesn't write the initial message to JSONL immediately)
+      navigate(`/c/${sessionIdToNavigate}`, {
+        state: {
+          optimisticMessage: {
+            content: text,
+            workingDirectory: workingDirectory
+          }
+        }
+      });
     } catch (error) {
       console.error('Failed to start conversation:', error);
       // You might want to show an error message to the user here

@@ -21,9 +21,10 @@ export function ConversationView() {
   const [isPermissionDecisionLoading, setIsPermissionDecisionLoading] = useState(false);
   const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(null);
   const [currentWorkingDirectory, setCurrentWorkingDirectory] = useState<string>('');
-  const [showFilesSidebar, setShowFilesSidebar] = useState(false);
+  const [showFilesSidebar, setShowFilesSidebar] = useState(true);
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const composerRef = useRef<ComposerRef>(null);
+  const [optimisticInitialMessage, setOptimisticInitialMessage] = useState<ChatMessage | null>(null);
 
   // Use shared conversation messages hook
   const {
@@ -55,12 +56,28 @@ export function ConversationView() {
     },
   });
 
-  // Clear navigation state to prevent issues on refresh
+  // Handle optimistic initial message from navigation state
   useEffect(() => {
-    const state = location.state;
-    
-    if (state) {
+    const state = location.state as { optimisticMessage?: { content: string; workingDirectory: string } } | null;
+
+    if (state?.optimisticMessage) {
+      // Store the optimistic user message
+      // This will be prepended to messages until the real message appears from the backend
+      const optimisticMsg: ChatMessage = {
+        id: 'optimistic-initial',
+        messageId: 'optimistic-initial',
+        type: 'user',
+        content: state.optimisticMessage.content,
+        timestamp: new Date().toISOString(),
+        workingDirectory: state.optimisticMessage.workingDirectory
+      };
+
+      setOptimisticInitialMessage(optimisticMsg);
+
       // Clear the state to prevent issues on refresh
+      window.history.replaceState({}, document.title);
+    } else if (state) {
+      // Clear any other state to prevent issues on refresh
       window.history.replaceState({}, document.title);
     }
   }, [location]);
@@ -88,8 +105,23 @@ export function ConversationView() {
         const details = await api.getConversationDetails(sessionId);
         const chatMessages = convertToChatlMessages(details);
 
+        // Check if we have an optimistic initial message to prepend
+        let finalMessages = chatMessages;
+        if (optimisticInitialMessage) {
+          // Check if the first message is already a user message
+          const hasUserMessage = chatMessages.some(msg => msg.type === 'user');
+
+          if (!hasUserMessage) {
+            // Prepend the optimistic message since the real one hasn't appeared yet
+            finalMessages = [optimisticInitialMessage, ...chatMessages];
+          } else {
+            // Real message appeared, clear the optimistic one
+            setOptimisticInitialMessage(null);
+          }
+        }
+
         // Always load fresh messages from backend
-        setAllMessages(chatMessages);
+        setAllMessages(finalMessages);
 
         // Store raw messages for file detection
         setConversationMessages(details.messages);
@@ -153,7 +185,7 @@ export function ConversationView() {
     };
 
     loadConversation();
-  }, [sessionId, setAllMessages]);
+  }, [sessionId, setAllMessages, optimisticInitialMessage, setPermissionRequest]);
 
   const { isConnected, disconnect } = useStreaming(streamingId, {
     onMessage: handleStreamMessage,
@@ -238,6 +270,13 @@ export function ConversationView() {
     }
   };
 
+  const handleFileClick = (filePath: string) => {
+    // Insert the file reference into the composer with @ syntax
+    if (composerRef.current) {
+      const fileReference = `@${filePath} `;
+      composerRef.current.insertText(fileReference);
+    }
+  };
 
   return (
     <div className="h-full flex bg-background relative" role="main" aria-label="Conversation view">
@@ -396,6 +435,7 @@ export function ConversationView() {
             <ConversationFilesSidebar
               messages={conversationMessages}
               sessionId={sessionId}
+              onFileClick={handleFileClick}
             />
           </div>
         </div>
@@ -412,6 +452,7 @@ export function ConversationView() {
               <ConversationFilesSidebar
                 messages={conversationMessages}
                 sessionId={sessionId}
+                onFileClick={handleFileClick}
               />
             </div>
           </div>

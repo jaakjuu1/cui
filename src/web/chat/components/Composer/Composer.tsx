@@ -82,6 +82,7 @@ export interface ComposerProps {
 
 export interface ComposerRef {
   focusInput: () => void;
+  insertText: (text: string) => void;
 }
 
 interface DirectoryDropdownProps {
@@ -387,14 +388,33 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Expose focusInput method via ref
+  // Expose focusInput and insertText methods via ref
   useImperativeHandle(ref, () => ({
     focusInput: () => {
       if (textareaRef.current) {
         textareaRef.current.focus();
       }
+    },
+    insertText: (text: string) => {
+      if (textareaRef.current) {
+        const textarea = textareaRef.current;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const currentValue = value;
+
+        // Insert text at cursor position (or at the end if no selection)
+        const newValue = currentValue.substring(0, start) + text + currentValue.substring(end);
+        setValue(newValue);
+
+        // Focus and set cursor position after inserted text
+        textarea.focus();
+        setTimeout(() => {
+          const newCursorPos = start + text.length;
+          textarea.setSelectionRange(newCursorPos, newCursorPos);
+        }, 0);
+      }
     }
-  }), []);
+  }), [value, setValue]);
 
   // Update local state when props change
   useEffect(() => {

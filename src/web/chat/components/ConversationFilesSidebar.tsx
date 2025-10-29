@@ -20,6 +20,7 @@ interface ConversationFilesSidebarProps {
     cwd?: string;
   }>;
   sessionId: string;
+  onFileClick?: (filePath: string) => void;
 }
 
 interface UploadedFile {
@@ -29,7 +30,7 @@ interface UploadedFile {
   lastModified: string;
 }
 
-export function ConversationFilesSidebar({ messages, sessionId }: ConversationFilesSidebarProps) {
+export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: ConversationFilesSidebarProps) {
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [uploadTrigger, setUploadTrigger] = useState(0);
@@ -167,6 +168,7 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
                     file={file}
                     onDownload={() => handleDownloadSingle(file.path)}
                     onDelete={() => handleDeleteFile(file.path)}
+                    onClick={() => onFileClick?.(file.path)}
                   />
                 ))}
               </div>
@@ -189,6 +191,7 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
                     key={file.path}
                     file={file}
                     onDownload={() => handleDownloadSingle(file.path)}
+                    onClick={() => onFileClick?.(file.path)}
                   />
                 ))}
               </div>
@@ -203,9 +206,10 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
 interface FileItemProps {
   file: DetectedFile;
   onDownload: () => void;
+  onClick?: () => void;
 }
 
-function FileItem({ file, onDownload }: FileItemProps) {
+function FileItem({ file, onDownload, onClick }: FileItemProps) {
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownload = async () => {
@@ -220,9 +224,13 @@ function FileItem({ file, onDownload }: FileItemProps) {
   return (
     <div className="flex items-start gap-2 p-2 rounded-lg hover:bg-accent group">
       <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
-      <div className="flex-1 min-w-0">
+      <div
+        className="flex-1 min-w-0 cursor-pointer"
+        onClick={onClick}
+        title="Click to attach to message"
+      >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{file.filename}</span>
+          <span className="text-sm font-medium truncate hover:text-primary">{file.filename}</span>
           {file.toolUses.length > 0 && (
             <Badge variant="outline" className="text-xs">
               {file.toolUses.length} edit{file.toolUses.length !== 1 ? 's' : ''}
@@ -250,9 +258,10 @@ interface UploadedFileItemProps {
   file: UploadedFile;
   onDownload: () => void;
   onDelete: () => void;
+  onClick?: () => void;
 }
 
-function UploadedFileItem({ file, onDownload, onDelete }: UploadedFileItemProps) {
+function UploadedFileItem({ file, onDownload, onDelete, onClick }: UploadedFileItemProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -288,9 +297,13 @@ function UploadedFileItem({ file, onDownload, onDelete }: UploadedFileItemProps)
   return (
     <div className="flex items-start gap-2 p-2 rounded-lg hover:bg-accent group">
       <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
-      <div className="flex-1 min-w-0">
+      <div
+        className="flex-1 min-w-0 cursor-pointer"
+        onClick={onClick}
+        title="Click to attach to message"
+      >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{file.name}</span>
+          <span className="text-sm font-medium truncate hover:text-primary">{file.name}</span>
           {file.size && (
             <Badge variant="outline" className="text-xs">
               {formatFileSize(file.size)}
