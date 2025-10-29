@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Download, FileText, FolderOpen, Package, Upload } from 'lucide-react';
+import { Download, FileText, FolderOpen, Package, Upload, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -83,6 +83,17 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
     }
   };
 
+  const handleDeleteFile = async (filePath: string) => {
+    try {
+      await api.deleteUploadedFile(filePath, sessionId);
+      // Trigger re-fetch of uploaded files
+      setUploadTrigger(prev => prev + 1);
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
   if (detectedFiles.length === 0 && uploadedFiles.length === 0) {
     return (
       <div className="w-full border rounded-lg p-4">
@@ -155,6 +166,7 @@ export function ConversationFilesSidebar({ messages, sessionId }: ConversationFi
                     key={file.path}
                     file={file}
                     onDownload={() => handleDownloadSingle(file.path)}
+                    onDelete={() => handleDeleteFile(file.path)}
                   />
                 ))}
               </div>
@@ -237,10 +249,12 @@ function FileItem({ file, onDownload }: FileItemProps) {
 interface UploadedFileItemProps {
   file: UploadedFile;
   onDownload: () => void;
+  onDelete: () => void;
 }
 
-function UploadedFileItem({ file, onDownload }: UploadedFileItemProps) {
+function UploadedFileItem({ file, onDownload, onDelete }: UploadedFileItemProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDownload = () => {
     try {
@@ -248,6 +262,19 @@ function UploadedFileItem({ file, onDownload }: UploadedFileItemProps) {
       onDownload();
     } finally {
       setIsDownloading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${file.name}?`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      await onDelete();
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -274,15 +301,27 @@ function UploadedFileItem({ file, onDownload }: UploadedFileItemProps) {
           {file.path}
         </p>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={handleDownload}
-        disabled={isDownloading}
-        className="opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <Download className="w-4 h-4" />
-      </Button>
+      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleDownload}
+          disabled={isDownloading || isDeleting}
+          title="Download file"
+        >
+          <Download className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleDelete}
+          disabled={isDownloading || isDeleting}
+          className="hover:text-destructive"
+          title="Delete file"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }

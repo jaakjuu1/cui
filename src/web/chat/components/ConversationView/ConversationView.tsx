@@ -353,9 +353,15 @@ export function ConversationView() {
               permissionRequest={currentPermissionRequest}
               showPermissionUI={true}
               showStopButton={true}
+              showFileUpload={true}
               enableFileAutocomplete={true}
               dropdownPosition="above"
               workingDirectory={conversationSummary?.projectPath}
+              sessionId={sessionId}
+              onFileUpload={(uploadedPaths) => {
+                console.log('Files uploaded:', uploadedPaths);
+                // Optionally reload conversation to show uploaded files
+              }}
               onFetchFileSystem={async (directory) => {
                 try {
                   const response = await api.listDirectory({

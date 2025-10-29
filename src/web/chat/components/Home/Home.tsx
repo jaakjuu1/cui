@@ -24,6 +24,7 @@ export function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const conversationCountRef = useRef(conversations.length);
   const composerRef = useRef<ComposerRef>(null);
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
   // Update the ref whenever conversations change
   useEffect(() => {
@@ -99,23 +100,96 @@ export function Home() {
 
   const handleComposerSubmit = async (text: string, workingDirectory: string, model: string, permissionMode: string) => {
     setIsSubmitting(true);
-    
+
     try {
-      const response = await api.startConversation({
-        workingDirectory,
-        initialPrompt: text,
-        model: model === 'default' ? undefined : model,
-        permissionMode: permissionMode === 'default' ? undefined : permissionMode,
-      });
-      
+      let sessionIdToNavigate: string;
+
+      // If we have staged files, we need to upload them and include file references
+      if (stagedFiles.length > 0) {
+        // Create file references based on predictable upload paths
+        const fileReferences = stagedFiles.map(f => `@uploads/${f.name}`).join(' ');
+        const messageWithFiles = `${fileReferences}\n\n${text}`;
+
+        // Start conversation with the user's message + file references
+        // The files will be uploaded immediately after, so the references will be valid
+        const response = await api.startConversation({
+          workingDirectory,
+          initialPrompt: messageWithFiles,
+          model: model === 'default' ? undefined : model,
+          permissionMode: permissionMode === 'default' ? undefined : permissionMode,
+        });
+
+        sessionIdToNavigate = response.sessionId;
+
+        try {
+          // Wait a bit for the conversation to be initialized and persisted
+          // The conversation needs to exist in ~/.claude/ before we can upload files
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          // Retry upload up to 3 times with exponential backoff
+          let uploadSuccess = false;
+          let lastError: Error | null = null;
+
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              const uploadResponse = await api.uploadFiles(stagedFiles, response.sessionId, 'uploads');
+              console.log(`Uploaded ${stagedFiles.length} staged files to conversation ${response.sessionId}`);
+
+              // Get uploaded file paths for logging
+              const uploadedFilePaths = uploadResponse.files.map((f: { uploadedPath: string }) => f.uploadedPath);
+              console.log(`Files uploaded to: ${uploadedFilePaths.join(', ')}`);
+
+              // Clear staged files after successful upload
+              setStagedFiles([]);
+
+              uploadSuccess = true;
+              break; // Success, exit retry loop
+            } catch (err) {
+              lastError = err instanceof Error ? err : new Error(String(err));
+              console.log(`Upload attempt ${attempt} failed, retrying...`, err);
+
+              if (attempt < 3) {
+                // Wait before retrying (exponential backoff: 500ms, 1000ms)
+                await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+              }
+            }
+          }
+
+          if (!uploadSuccess) {
+            throw lastError || new Error('Upload failed after 3 attempts');
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload staged files:', uploadError);
+          alert(`Warning: Failed to upload files: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}\n\nYou can upload files manually from the conversation view.`);
+          // Continue to navigate even if upload failed - user can upload manually
+        }
+      } else {
+        // No staged files, just start conversation normally
+        const response = await api.startConversation({
+          workingDirectory,
+          initialPrompt: text,
+          model: model === 'default' ? undefined : model,
+          permissionMode: permissionMode === 'default' ? undefined : permissionMode,
+        });
+        sessionIdToNavigate = response.sessionId;
+      }
+
       // Navigate to the conversation page
-      navigate(`/c/${response.sessionId}`);
+      navigate(`/c/${sessionIdToNavigate}`);
     } catch (error) {
       console.error('Failed to start conversation:', error);
       // You might want to show an error message to the user here
       alert(`Failed to start conversation: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsSubmitting(false);
     }
+  };
+
+  const handleFilesStaged = (files: File[]) => {
+    setStagedFiles(prev => [...prev, ...files]);
+  };
+
+  const handleRemoveStagedFile = (index: number) => {
+    setStagedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -144,7 +218,7 @@ export function Home() {
               </div>
               
               <div className="w-full">
-                <Composer 
+                <Composer
                   ref={composerRef}
                   workingDirectory={recentWorkingDirectory}
                   onSubmit={handleComposerSubmit}
@@ -152,9 +226,13 @@ export function Home() {
                   placeholder="Describe your task"
                   showDirectorySelector={true}
                   showModelSelector={true}
+                  showFileUpload={true}
                   enableFileAutocomplete={true}
                   recentDirectories={recentDirectories}
                   getMostRecentWorkingDirectory={getMostRecentWorkingDirectory}
+                  stagedFiles={stagedFiles}
+                  onFilesStaged={handleFilesStaged}
+                  onRemoveStagedFile={handleRemoveStagedFile}
                   onDirectoryChange={(directory) => {
                     // Focus input after directory change
                     setTimeout(() => {

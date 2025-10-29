@@ -482,6 +482,49 @@ class ApiService {
   }
 
   /**
+   * Delete an uploaded file
+   * @param filePath - The path to the file to delete
+   * @param sessionId - The conversation session ID
+   */
+  async deleteUploadedFile(
+    filePath: string,
+    sessionId: string
+  ): Promise<{ success: boolean }> {
+    const authToken = getAuthToken();
+    const searchParams = new URLSearchParams({ sessionId, filePath });
+
+    const url = `${this.baseUrl}/api/filesystem/delete?${searchParams}`;
+
+    console.log(`[API] Deleting file ${filePath} for session ${sessionId}`);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error((data as ApiError).error || `Delete failed with status ${response.status}`);
+      }
+
+      console.log(`[API] File deleted successfully:`, data);
+      return data;
+    } catch (error) {
+      console.error(`[API] Delete failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * List uploaded files in a conversation's uploads directory
    * @param sessionId - The conversation session ID
    */

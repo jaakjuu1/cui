@@ -421,5 +421,74 @@ export function createFileSystemRoutes(
     }
   });
 
+  // Delete uploaded file
+  router.delete('/delete', async (req: Request<Record<string, never>, { success: boolean }, Record<string, never>, { sessionId: string; filePath: string }> & RequestWithRequestId, res, next) => {
+    const requestId = req.requestId;
+    logger.debug('Delete file request', {
+      requestId,
+      sessionId: req.query.sessionId,
+      filePath: req.query.filePath
+    });
+
+    try {
+      // Validate required parameters
+      if (!req.query.sessionId) {
+        throw new CUIError('MISSING_SESSION_ID', 'sessionId query parameter is required', 400);
+      }
+      if (!req.query.filePath) {
+        throw new CUIError('MISSING_FILE_PATH', 'filePath query parameter is required', 400);
+      }
+
+      // Get conversation metadata to find the cwd
+      const metadata = await historyReader.getConversationMetadata(req.query.sessionId);
+      if (!metadata) {
+        throw new CUIError('CONVERSATION_NOT_FOUND', 'Conversation not found', 404);
+      }
+
+      // Get the cwd from the first message of the conversation
+      const messages = await historyReader.fetchConversation(req.query.sessionId);
+      if (messages.length === 0) {
+        throw new CUIError('NO_MESSAGES', 'No messages found in conversation', 404);
+      }
+
+      const conversationCwd = messages[0].cwd || metadata.projectPath;
+      if (!conversationCwd) {
+        throw new CUIError('NO_CWD', 'Could not determine conversation working directory', 400);
+      }
+
+      // Resolve the file path (should be absolute or relative to cwd)
+      const filePath = path.isAbsolute(req.query.filePath)
+        ? req.query.filePath
+        : path.join(conversationCwd, req.query.filePath);
+
+      // Security check: Ensure file path is within conversation's cwd
+      const normalizedCwd = path.normalize(conversationCwd);
+      const normalizedFilePath = path.normalize(filePath);
+
+      if (!normalizedFilePath.startsWith(normalizedCwd)) {
+        throw new CUIError('INVALID_PATH', 'File path must be within conversation working directory', 400);
+      }
+
+      // Delete the file
+      await fileSystemService.deleteFile(filePath);
+
+      logger.debug('File deleted successfully', {
+        requestId,
+        sessionId: req.query.sessionId,
+        filePath
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      logger.debug('Delete file failed', {
+        requestId,
+        sessionId: req.query.sessionId,
+        filePath: req.query.filePath,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      next(error);
+    }
+  });
+
   return router;
 }

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { ChevronDown, Mic, Send, Loader2, Sparkles, Laptop, Square, Check, X, MicOff, Zap, Bot, Drone, Code2, Gauge, Rocket, FileText } from 'lucide-react';
+import { ChevronDown, Mic, Send, Loader2, Sparkles, Laptop, Square, Check, X, MicOff, Zap, Bot, Drone, Code2, Gauge, Rocket, FileText, Paperclip, File } from 'lucide-react';
 import { DropdownSelector, DropdownOption } from '../DropdownSelector';
 import { PermissionDialog } from '../PermissionDialog';
 import { WaveformVisualizer } from '../WaveformVisualizer';
@@ -42,6 +42,7 @@ export interface ComposerProps {
   enableFileAutocomplete?: boolean;
   showPermissionUI?: boolean;
   showStopButton?: boolean;
+  showFileUpload?: boolean;
 
   // Directory selection
   workingDirectory?: string;
@@ -68,6 +69,15 @@ export interface ComposerProps {
   // Command autocomplete
   availableCommands?: Command[];
   onFetchCommands?: (workingDirectory?: string) => Promise<Command[]>;
+
+  // File upload
+  sessionId?: string;
+  onFileUpload?: (uploadedPaths: string[]) => void;
+
+  // File staging (for Home view without sessionId)
+  stagedFiles?: File[];
+  onFilesStaged?: (files: File[]) => void;
+  onRemoveStagedFile?: (index: number) => void;
 }
 
 export interface ComposerRef {
@@ -305,6 +315,7 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
   enableFileAutocomplete = false,
   showPermissionUI = false,
   showStopButton = false,
+  showFileUpload = false,
   workingDirectory = '',
   onDirectoryChange,
   recentDirectories = {},
@@ -319,6 +330,11 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
   onFetchFileSystem,
   availableCommands = [],
   onFetchCommands,
+  sessionId,
+  onFileUpload,
+  stagedFiles = [],
+  onFilesStaged,
+  onRemoveStagedFile,
 }: ComposerProps, ref: React.Ref<ComposerRef>) {
   // Load cached state
   const [cachedState, setCachedState] = useLocalStorage<ComposerCache>('cui-composer', {
@@ -354,16 +370,22 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
   const composerRef = useRef<HTMLFormElement>(null);
   
   // Audio recording state
-  const { 
-    state: audioState, 
-    startRecording, 
-    stopRecording, 
+  const {
+    state: audioState,
+    startRecording,
+    stopRecording,
     resetToIdle,
-    error: audioError, 
+    error: audioError,
     duration: recordingDuration,
     isSupported: isAudioSupported,
     audioData
   } = useAudioRecording();
+
+  // File upload state
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Expose focusInput method via ref
   useImperativeHandle(ref, () => ({
@@ -842,15 +864,131 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
     }
   };
 
+  // File upload handlers
+  const handleFileUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const fileArray = Array.from(files);
+
+    // Staging mode (no sessionId): just stage the files for later upload
+    if (!sessionId && onFilesStaged) {
+      try {
+        onFilesStaged(fileArray);
+        setUploadSuccess(
+          `Staged ${fileArray.length} file${fileArray.length > 1 ? 's' : ''}`
+        );
+
+        // Clear success message after 3 seconds
+        setTimeout(() => setUploadSuccess(null), 3000);
+
+        // Clear file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      } catch (err) {
+        console.error('File staging error:', err);
+        setUploadError(err instanceof Error ? err.message : 'Failed to stage files');
+        setTimeout(() => setUploadError(null), 5000);
+      }
+      return;
+    }
+
+    // Upload mode (with sessionId): upload immediately
+    if (!sessionId) return;
+
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+      setUploadSuccess(null);
+
+      const response = await api.uploadFiles(fileArray, sessionId);
+
+      if (response.success) {
+        const uploadedPaths = response.files.map(f => f.uploadedPath);
+        setUploadSuccess(
+          `Uploaded ${response.files.length} file${response.files.length > 1 ? 's' : ''}`
+        );
+
+        // Clear success message after 3 seconds
+        setTimeout(() => setUploadSuccess(null), 3000);
+
+        // Notify parent component
+        onFileUpload?.(uploadedPaths);
+
+        // Clear file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+
+      // Show errors if any files failed
+      if (response.errors && response.errors.length > 0) {
+        const errorMessages = response.errors
+          .map(e => `${e.filename}: ${e.error}`)
+          .join(', ');
+        setUploadError(errorMessages);
+
+        // Clear error message after 5 seconds
+        setTimeout(() => setUploadError(null), 5000);
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+
+      // Clear error message after 5 seconds
+      setTimeout(() => setUploadError(null), 5000);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
-    <form 
+    <form
       ref={composerRef}
-      className="w-full relative" 
+      className="w-full relative"
       onSubmit={(e) => {
         e.preventDefault();
         handleSubmit(selectedPermissionMode);
       }}
     >
+      {/* Staged Files Display */}
+      {stagedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2 px-1">
+          {stagedFiles.map((file, index) => (
+            <TooltipProvider key={`${file.name}-${index}`}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted/50 hover:bg-muted rounded-full text-xs text-muted-foreground border border-border group transition-colors">
+                    <File size={12} className="flex-shrink-0" />
+                    <span className="max-w-[150px] truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveStagedFile?.(index)}
+                      className="ml-1 flex-shrink-0 hover:text-destructive transition-colors"
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">
+                    {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                    <br />
+                    <span className="text-muted-foreground">Click X to remove</span>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-col items-center justify-center w-full bg-transparent border border-border rounded-3xl shadow-sm cursor-text transition-all duration-300">
         <div className="relative flex items-end w-full min-h-[73px]">
           <div className="relative flex flex-1 items-start mx-5 min-h-[73px]">
@@ -964,31 +1102,86 @@ export const Composer = forwardRef<ComposerRef, ComposerProps>(function Composer
                 </TooltipProvider>
               </div>
             ) : (
-              /* Idle State: Show mic button */
-              isAudioSupported && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                          "h-8 px-2 text-muted-foreground hover:bg-muted/50 rounded-full",
-                          audioError && "bg-red-300 text-red-900 hover:bg-red-400 hover:text-red-950"
-                        )}
-                        onClick={handleMicClick}
-                        disabled={disabled}
-                      >
-                        {audioError ? <MicOff size={16} /> : <Mic size={16} />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{audioError ? `Error: ${audioError}` : 'Start voice recording'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )
+              /* Idle State: Show mic and upload buttons */
+              <>
+                {/* File Upload Button */}
+                {showFileUpload && (sessionId || onFilesStaged) && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "h-8 px-2 text-muted-foreground hover:bg-muted/50 rounded-full",
+                            uploadError && "bg-red-300 text-red-900 hover:bg-red-400 hover:text-red-950",
+                            uploadSuccess && "bg-green-300 text-green-900 hover:bg-green-400 hover:text-green-950"
+                          )}
+                          onClick={handleFileUploadClick}
+                          disabled={disabled || isUploading}
+                        >
+                          {isUploading ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Paperclip size={16} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          {uploadError
+                            ? `Error: ${uploadError}`
+                            : uploadSuccess
+                              ? uploadSuccess
+                              : isUploading
+                                ? 'Uploading...'
+                                : sessionId
+                                  ? 'Upload files'
+                                  : `Attach files (${stagedFiles.length} staged)`}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+
+                {/* Hidden file input */}
+                {showFileUpload && (sessionId || onFilesStaged) && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                )}
+
+                {/* Mic Button */}
+                {isAudioSupported && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "h-8 px-2 text-muted-foreground hover:bg-muted/50 rounded-full",
+                            audioError && "bg-red-300 text-red-900 hover:bg-red-400 hover:text-red-950"
+                          )}
+                          onClick={handleMicClick}
+                          disabled={disabled}
+                        >
+                          {audioError ? <MicOff size={16} /> : <Mic size={16} />}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{audioError ? `Error: ${audioError}` : 'Start voice recording'}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </>
             )}
             
             {permissionRequest && showPermissionUI ? (

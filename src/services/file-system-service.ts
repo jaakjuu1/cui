@@ -704,11 +704,53 @@ export class FileSystemService {
       if (error instanceof CUIError) {
         throw error;
       }
-      
+
       this.logger.error('Error validating executable', error, { executablePath });
       throw new CUIError(
         'EXECUTABLE_VALIDATION_FAILED',
         `Failed to validate executable: ${error}`,
+        500
+      );
+    }
+  }
+
+  /**
+   * Delete a file with security checks
+   */
+  async deleteFile(filePath: string): Promise<void> {
+    this.logger.debug('Delete file requested', { filePath });
+
+    try {
+      // Validate path before deletion
+      const safePath = await this.validatePath(filePath);
+
+      // Check if file exists
+      try {
+        const stats = await fs.stat(safePath);
+        if (!stats.isFile()) {
+          throw new CUIError('NOT_A_FILE', 'Path is not a file', 400);
+        }
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === 'ENOENT') {
+          throw new CUIError('FILE_NOT_FOUND', 'File not found', 404);
+        }
+        throw error;
+      }
+
+      // Delete the file
+      await fs.unlink(safePath);
+
+      this.logger.debug('File deleted successfully', { filePath: safePath });
+    } catch (error) {
+      if (error instanceof CUIError) {
+        throw error;
+      }
+
+      this.logger.error('Error deleting file', error, { filePath });
+      throw new CUIError(
+        'FILE_DELETE_FAILED',
+        `Failed to delete file: ${error}`,
         500
       );
     }
