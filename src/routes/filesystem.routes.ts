@@ -289,6 +289,86 @@ export function createFileSystemRoutes(
     }
   });
 
+  router.get('/output', async (req: Request<Record<string, never>, never, Record<string, never>, { sessionId: string }> & RequestWithRequestId, res, next) => {
+    const requestId = req.requestId;
+    logger.debug('List output request', {
+      requestId,
+      sessionId: req.query.sessionId
+    });
+
+    try {
+      // Validate required parameters
+      if (!req.query.sessionId) {
+        throw new CUIError('MISSING_SESSION_ID', 'sessionId query parameter is required', 400);
+      }
+
+      // Get conversation metadata to find the cwd
+      const metadata = await historyReader.getConversationMetadata(req.query.sessionId);
+      if (!metadata) {
+        throw new CUIError('CONVERSATION_NOT_FOUND', 'Conversation not found', 404);
+      }
+
+      // Get the cwd from the first message of the conversation
+      const messages = await historyReader.fetchConversation(req.query.sessionId);
+      if (messages.length === 0) {
+        throw new CUIError('NO_MESSAGES', 'No messages found in conversation', 404);
+      }
+
+      const conversationCwd = messages[0].cwd || metadata.projectPath;
+      if (!conversationCwd) {
+        throw new CUIError('NO_CWD', 'Could not determine conversation working directory', 400);
+      }
+
+      // Get the output directory path
+      const outputPath = path.join(conversationCwd, 'output');
+
+      // Check if output directory exists
+      try {
+        await fileSystemService.listDirectory(outputPath, false, false);
+      } catch (error) {
+        // If directory doesn't exist, return empty list
+        if (error instanceof CUIError && error.code === 'PATH_NOT_FOUND') {
+          logger.debug('Output directory does not exist', {
+            requestId,
+            sessionId: req.query.sessionId,
+            outputPath
+          });
+          res.json({ files: [] });
+          return;
+        }
+        throw error;
+      }
+
+      // List files in output directory recursively
+      const result = await fileSystemService.listDirectory(outputPath, true, false);
+
+      // Filter to only include files (not directories)
+      const files = result.entries
+        .filter(entry => entry.type === 'file')
+        .map(entry => ({
+          name: entry.name,
+          path: path.join(outputPath, entry.name),
+          size: entry.size,
+          lastModified: entry.lastModified
+        }));
+
+      logger.debug('Output files listed successfully', {
+        requestId,
+        sessionId: req.query.sessionId,
+        fileCount: files.length
+      });
+
+      res.json({ files });
+    } catch (error) {
+      logger.debug('List output failed', {
+        requestId,
+        sessionId: req.query.sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      next(error);
+    }
+  });
+
   // Upload files (restricted to conversation cwd/uploads directory)
   router.post('/upload', upload.array('files'), async (req: Request<Record<string, never>, FileUploadResponse, Record<string, never>, FileSystemUploadQuery> & RequestWithRequestId, res, next) => {
     const requestId = req.requestId;

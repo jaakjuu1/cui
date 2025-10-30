@@ -35,24 +35,29 @@ export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: C
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [uploadTrigger, setUploadTrigger] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [outputFiles, setOutputFiles] = useState<UploadedFile[]>([]);
 
-  // Extract files from conversation
+  // Extract files from conversation (only recompute when messages change)
   const detectedFiles = useMemo(() => {
     return extractFilePathsFromConversation(messages);
-  }, [messages, uploadTrigger]);
+  }, [messages]);
 
-  // Fetch uploaded files
+  // Fetch uploaded files and output files when sessionId changes or uploadTrigger changes
   useEffect(() => {
-    const fetchUploadedFiles = async () => {
+    const fetchFiles = async () => {
       try {
-        const result = await api.listUploadedFiles(sessionId);
-        setUploadedFiles(result.files);
+        const [uploadsResult, outputResult] = await Promise.all([
+          api.listUploadedFiles(sessionId),
+          api.listOutputFiles(sessionId)
+        ]);
+        setUploadedFiles(uploadsResult.files);
+        setOutputFiles(outputResult.files);
       } catch (err) {
-        console.error('Failed to fetch uploaded files:', err);
+        console.error('Failed to fetch files:', err);
       }
     };
 
-    fetchUploadedFiles();
+    fetchFiles();
   }, [sessionId, uploadTrigger]);
 
   const handleUploadComplete = (uploadedPaths: string[]) => {
@@ -95,7 +100,7 @@ export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: C
     }
   };
 
-  if (detectedFiles.length === 0 && uploadedFiles.length === 0) {
+  if (detectedFiles.length === 0 && uploadedFiles.length === 0 && outputFiles.length === 0) {
     return (
       <div className="w-full border rounded-lg p-4">
         <div className="flex items-center gap-2 mb-3">
@@ -120,7 +125,7 @@ export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: C
         <div className="flex items-center gap-2 mb-1">
           <FolderOpen className="w-5 h-5" />
           <h3 className="font-semibold">Files</h3>
-          <Badge variant="secondary">{detectedFiles.length + uploadedFiles.length}</Badge>
+          <Badge variant="secondary">{detectedFiles.length + uploadedFiles.length + outputFiles.length}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           Files in this conversation
@@ -142,7 +147,6 @@ export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: C
             onUploadComplete={handleUploadComplete}
             multiple={true}
             variant="default"
-            className="w-full"
           />
         </div>
 
@@ -150,6 +154,30 @@ export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: C
           <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded">
             {downloadError}
           </div>
+        )}
+
+        {outputFiles.length > 0 && (
+          <>
+            <div className="h-px bg-border" />
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Package className="w-4 h-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Output Files</h4>
+                <Badge variant="outline" className="text-xs">{outputFiles.length}</Badge>
+              </div>
+              <div className="max-h-[200px] overflow-y-auto space-y-2">
+                {outputFiles.map((file) => (
+                  <UploadedFileItem
+                    key={file.path}
+                    file={file}
+                    onDownload={() => handleDownloadSingle(file.path)}
+                    onDelete={() => handleDeleteFile(file.path)}
+                    onClick={() => onFileClick?.(file.path)}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
         )}
 
         {uploadedFiles.length > 0 && (

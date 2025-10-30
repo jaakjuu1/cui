@@ -103,7 +103,12 @@ export function extractFilePathsFromConversation(
     }
   }
 
-  return Array.from(allFiles.values());
+  // Filter to only include files in output/ or uploads/ folders
+  const filteredFiles = Array.from(allFiles.values()).filter(file =>
+    isInOutputOrUploadsFolder(file.path, conversationCwd)
+  );
+
+  return filteredFiles;
 }
 
 /**
@@ -238,6 +243,30 @@ function addOrUpdateFile(
       toolUses: toolName ? [{ tool: toolName, messageUuid }] : []
     });
   }
+}
+
+/**
+ * Check if a file path is within output/ or uploads/ folders
+ */
+function isInOutputOrUploadsFolder(filePath: string, conversationCwd?: string): boolean {
+  // Normalize path separators to forward slashes
+  const normalizedPath = filePath.replace(/\\/g, '/');
+
+  // Check if path contains /output/ or /uploads/ folder
+  const pathParts = normalizedPath.split('/');
+  const hasOutputOrUploads = pathParts.includes('output') || pathParts.includes('uploads');
+
+  if (!hasOutputOrUploads) {
+    return false;
+  }
+
+  // If conversationCwd is provided, ensure the file is within the conversation directory
+  if (conversationCwd) {
+    const normalizedCwd = conversationCwd.replace(/\\/g, '/');
+    return normalizedPath.startsWith(normalizedCwd);
+  }
+
+  return true;
 }
 
 /**

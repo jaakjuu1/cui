@@ -542,6 +542,22 @@ class ApiService {
   }
 
   /**
+   * List files in the conversation's output directory
+   * @param sessionId - The conversation session ID
+   */
+  async listOutputFiles(sessionId: string): Promise<{
+    files: Array<{
+      name: string;
+      path: string;
+      size?: number;
+      lastModified: string;
+    }>;
+  }> {
+    const searchParams = new URLSearchParams({ sessionId });
+    return this.apiCall(`/api/filesystem/output?${searchParams}`);
+  }
+
+  /**
    * Copy a project directory (copies .claude folder and creates empty uploads/output folders)
    * @param sourceDir - The source directory path (must be a valid Claude project with .claude folder)
    * @param targetDir - The target directory path (must not exist)

@@ -5,6 +5,7 @@ import { MessageList } from '../MessageList/MessageList';
 import { Composer, ComposerRef } from '@/web/chat/components/Composer';
 import { ConversationHeader } from '../ConversationHeader/ConversationHeader';
 import { ConversationFilesSidebar } from '../ConversationFilesSidebar';
+import { ResizableSidebar } from '../ResizableSidebar';
 import { Button } from '../ui/button';
 import { api } from '../../services/api';
 import { useStreaming, useConversationMessages } from '../../hooks';
@@ -55,6 +56,25 @@ export function ConversationView() {
       setStreamingId(null);
     },
   });
+
+  // Sync conversationMessages with live messages for file detection
+  useEffect(() => {
+    // Convert ChatMessage[] to ConversationMessage[] format for file sidebar
+    const convertedMessages: ConversationMessage[] = messages
+      .filter(msg => msg.type !== 'error') // Filter out error messages
+      .map(msg => ({
+        uuid: msg.id || msg.messageId,
+        type: msg.type as 'user' | 'assistant' | 'system',
+        message: {
+          content: Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: msg.content }]
+        },
+        timestamp: msg.timestamp,
+        sessionId: sessionId || '',
+        cwd: msg.workingDirectory,
+      }));
+
+    setConversationMessages(convertedMessages);
+  }, [messages, sessionId]);
 
   // Handle optimistic initial message from navigation state
   useEffect(() => {
@@ -123,9 +143,8 @@ export function ConversationView() {
         // Always load fresh messages from backend
         setAllMessages(finalMessages);
 
-        // Store raw messages for file detection
-        setConversationMessages(details.messages);
-        
+        // Note: conversationMessages is now auto-synced from messages via useEffect
+
         // Set working directory from the most recent message with a working directory
         const messagesWithCwd = chatMessages.filter(msg => msg.workingDirectory);
         if (messagesWithCwd.length > 0) {
@@ -430,15 +449,19 @@ export function ConversationView() {
 
       {/* Files sidebar */}
       {showFilesSidebar && sessionId && conversationMessages.length > 0 && (
-        <div className="w-80 border-l bg-background overflow-y-auto flex-shrink-0 hidden lg:block">
-          <div className="p-4 sticky top-0">
-            <ConversationFilesSidebar
-              messages={conversationMessages}
-              sessionId={sessionId}
-              onFileClick={handleFileClick}
-            />
-          </div>
-        </div>
+        <ResizableSidebar
+          defaultWidth={320}
+          minWidth={240}
+          maxWidth={800}
+          storageKey="conversation-files-sidebar-width"
+          className="hidden lg:block"
+        >
+          <ConversationFilesSidebar
+            messages={conversationMessages}
+            sessionId={sessionId}
+            onFileClick={handleFileClick}
+          />
+        </ResizableSidebar>
       )}
 
       {/* Mobile files sidebar overlay */}

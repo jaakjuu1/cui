@@ -364,7 +364,7 @@ describe('filePathDetector', () => {
               {
                 type: 'tool_use',
                 name: 'Write',
-                input: { file_path: '/home/user/file1.ts' }
+                input: { file_path: '/home/user/output/file1.ts' }
               }
             ]
           },
@@ -377,7 +377,7 @@ describe('filePathDetector', () => {
             content: [
               {
                 type: 'text',
-                text: 'Also created /home/user/file2.ts'
+                text: 'Also created /home/user/uploads/file2.ts'
               }
             ]
           },
@@ -388,8 +388,8 @@ describe('filePathDetector', () => {
       const files = extractFilePathsFromConversation(messages);
       expect(files.length).toBeGreaterThanOrEqual(2);
       const paths = files.map(f => f.path);
-      expect(paths).toContain('/home/user/file1.ts');
-      expect(paths).toContain('/home/user/file2.ts');
+      expect(paths).toContain('/home/user/output/file1.ts');
+      expect(paths).toContain('/home/user/uploads/file2.ts');
     });
 
     it('should merge duplicate files across messages', () => {
@@ -402,7 +402,7 @@ describe('filePathDetector', () => {
               {
                 type: 'tool_use',
                 name: 'Write',
-                input: { file_path: '/home/user/test.ts' }
+                input: { file_path: '/home/user/output/test.ts' }
               }
             ]
           },
@@ -416,7 +416,7 @@ describe('filePathDetector', () => {
               {
                 type: 'tool_use',
                 name: 'Edit',
-                input: { file_path: '/home/user/test.ts' }
+                input: { file_path: '/home/user/output/test.ts' }
               }
             ]
           },
@@ -441,7 +441,7 @@ describe('filePathDetector', () => {
             content: [
               {
                 type: 'text',
-                text: 'Working in /home/user/project/src/app.ts'
+                text: 'Working in /home/user/project/output/app.ts'
               }
             ]
           },
@@ -451,6 +451,61 @@ describe('filePathDetector', () => {
 
       const files = extractFilePathsFromConversation(messages);
       expect(files.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should only include files in output/ or uploads/ folders', () => {
+      const messages = [
+        {
+          uuid: 'msg-1',
+          type: 'assistant' as const,
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                name: 'Write',
+                input: { file_path: '/home/user/src/app.ts' }
+              }
+            ]
+          },
+          cwd: '/home/user'
+        },
+        {
+          uuid: 'msg-2',
+          type: 'assistant' as const,
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                name: 'Write',
+                input: { file_path: '/home/user/output/result.json' }
+              }
+            ]
+          },
+          cwd: '/home/user'
+        },
+        {
+          uuid: 'msg-3',
+          type: 'assistant' as const,
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                name: 'Write',
+                input: { file_path: '/home/user/uploads/data.csv' }
+              }
+            ]
+          },
+          cwd: '/home/user'
+        }
+      ];
+
+      const files = extractFilePathsFromConversation(messages);
+      // Should only include files in output/ and uploads/ folders
+      expect(files.length).toBe(2);
+      const paths = files.map(f => f.path);
+      expect(paths).toContain('/home/user/output/result.json');
+      expect(paths).toContain('/home/user/uploads/data.csv');
+      expect(paths).not.toContain('/home/user/src/app.ts');
     });
   });
 
