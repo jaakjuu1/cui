@@ -448,7 +448,7 @@ export function ConversationView() {
       </div>
 
       {/* Files sidebar */}
-      {showFilesSidebar && sessionId && conversationMessages.length > 0 && (
+      {showFilesSidebar && sessionId && (
         <ResizableSidebar
           defaultWidth={320}
           minWidth={240}
@@ -457,6 +457,7 @@ export function ConversationView() {
           className="hidden lg:block"
         >
           <ConversationFilesSidebar
+            key={sessionId}
             messages={conversationMessages}
             sessionId={sessionId}
             onFileClick={handleFileClick}
@@ -465,7 +466,7 @@ export function ConversationView() {
       )}
 
       {/* Mobile files sidebar overlay */}
-      {showFilesSidebar && sessionId && conversationMessages.length > 0 && (
+      {showFilesSidebar && sessionId && (
         <div className="lg:hidden fixed inset-0 bg-black/50 z-50" onClick={() => setShowFilesSidebar(false)}>
           <div
             className="absolute right-0 top-0 bottom-0 w-80 bg-background overflow-y-auto shadow-lg"
@@ -473,6 +474,7 @@ export function ConversationView() {
           >
             <div className="p-4">
               <ConversationFilesSidebar
+                key={sessionId}
                 messages={conversationMessages}
                 sessionId={sessionId}
                 onFileClick={handleFileClick}

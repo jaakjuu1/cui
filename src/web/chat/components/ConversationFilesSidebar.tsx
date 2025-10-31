@@ -42,23 +42,38 @@ export function ConversationFilesSidebar({ messages, sessionId, onFileClick }: C
     return extractFilePathsFromConversation(messages);
   }, [messages]);
 
-  // Fetch uploaded files and output files when sessionId changes or uploadTrigger changes
+  // Fetch uploaded files and output files when sessionId changes, uploadTrigger changes, or messages arrive
   useEffect(() => {
+    // Guard: only fetch if we have a valid sessionId
+    if (!sessionId) {
+      console.log('[ConversationFilesSidebar] Skipping file fetch - no sessionId');
+      return;
+    }
+
+    console.log('[ConversationFilesSidebar] Fetching files for session:', sessionId);
+
     const fetchFiles = async () => {
       try {
         const [uploadsResult, outputResult] = await Promise.all([
           api.listUploadedFiles(sessionId),
           api.listOutputFiles(sessionId)
         ]);
+        console.log('[ConversationFilesSidebar] Files fetched:', {
+          uploads: uploadsResult.files.length,
+          output: outputResult.files.length
+        });
         setUploadedFiles(uploadsResult.files);
         setOutputFiles(outputResult.files);
       } catch (err) {
-        console.error('Failed to fetch files:', err);
+        // Silently handle errors - conversation might not have messages yet
+        // This is expected for brand new conversations
+        console.debug('[ConversationFilesSidebar] Could not fetch files (conversation may be new):', err);
+        // Keep empty arrays - don't clear existing files on error
       }
     };
 
     fetchFiles();
-  }, [sessionId, uploadTrigger]);
+  }, [sessionId, uploadTrigger, messages.length]); // Re-fetch when messages arrive
 
   const handleUploadComplete = (uploadedPaths: string[]) => {
     console.log('Files uploaded:', uploadedPaths);
